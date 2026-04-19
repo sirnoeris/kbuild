@@ -76,8 +76,9 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
       }
 
       case "pdf": {
-        // Use pdf-parse for proper text extraction
-        const pdfParse = (await import("pdf-parse")).default;
+        // pdf-parse v1 exports a function directly (CJS-compatible)
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const pdfParse: (buf: Buffer) => Promise<{ text: string; numpages: number }> = require("pdf-parse");
         const buf = fs.readFileSync(absPath);
         const data = await pdfParse(buf);
         const text = data.text?.trim() ?? "";
@@ -91,7 +92,8 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
       }
 
       case "docx": {
-        const mammoth = await import("mammoth");
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mammoth = require("mammoth") as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string }> };
         const buf = fs.readFileSync(absPath);
         const result = await mammoth.extractRawText({ buffer: buf });
         return { path: relPath, kind, title, text: result.value };
@@ -99,7 +101,8 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
 
       case "pptx": {
         // PPTX is a zip — extract slide XML text
-        const AdmZip = (await import("adm-zip" as any)).default;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const AdmZip = require("adm-zip");
         const zip = new AdmZip(absPath);
         const slideEntries = zip.getEntries()
           .filter((e: any) => e.entryName.match(/ppt\/slides\/slide\d+\.xml$/))
@@ -115,7 +118,8 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
       }
 
       case "xlsx": {
-        const XLSX = await import("xlsx");
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const XLSX = require("xlsx") as typeof import("xlsx");
         const wb = XLSX.readFile(absPath);
         const parts: string[] = [];
         for (const sheetName of wb.SheetNames) {
