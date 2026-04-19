@@ -90,15 +90,15 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
+  // Port 5000 is used by macOS AirPlay Receiver on Monterey+. Default to 3131.
+  const port = parseInt(process.env.PORT || "3131", 10);
+  // Use 127.0.0.1 on macOS (0.0.0.0 throws ENOTSUP on some macOS versions).
+  // On Linux/Windows 0.0.0.0 is fine, but 127.0.0.1 works everywhere for local use.
+  const host = process.env.HOST || "127.0.0.1";
   httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
+    { port, host },
     () => {
-      log(`serving on port ${port}`);
+      log(`serving on http://${host}:${port}`);
     },
   );
 })();
