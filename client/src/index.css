@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ─────────────────────────────────────────────────────── */
+:root {
+  /* Type scale */
+  --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+  --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+  --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+  --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Transitions */
+  --transition-interactive: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* Fonts */
+  --font-display: 'Cabinet Grotesk', 'Helvetica Neue', sans-serif;
+  --font-body: 'Satoshi', 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Light mode — cool slate/ink palette for a developer tool */
+  --background: 220 14% 97%;
+  --foreground: 222 20% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 20% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 20% 11%;
+  --primary: 191 85% 28%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 13% 91%;
+  --secondary-foreground: 222 20% 20%;
+  --muted: 220 12% 94%;
+  --muted-foreground: 220 9% 52%;
+  --accent: 220 13% 91%;
+  --accent-foreground: 222 20% 20%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 12% 88%;
+  --input: 220 12% 88%;
+  --ring: 191 85% 28%;
+  --radius: 0.375rem;
+
+  /* Custom semantic tokens */
+  --color-bg: hsl(220, 14%, 97%);
+  --color-surface: hsl(0, 0%, 100%);
+  --color-surface-2: hsl(220, 14%, 98.5%);
+  --color-surface-offset: hsl(220, 13%, 94%);
+  --color-border: hsl(220, 12%, 88%);
+  --color-text: hsl(222, 20%, 11%);
+  --color-text-muted: hsl(220, 9%, 52%);
+  --color-text-faint: hsl(220, 8%, 72%);
+  --color-primary: hsl(191, 85%, 28%);
+  --color-primary-hover: hsl(191, 85%, 22%);
+  --color-primary-highlight: hsl(191, 50%, 92%);
+  --color-success: hsl(142, 60%, 34%);
+  --color-success-highlight: hsl(142, 40%, 92%);
+  --color-warning: hsl(32, 90%, 45%);
+  --color-warning-highlight: hsl(32, 60%, 94%);
+  --color-error: hsl(0, 72%, 51%);
+  --color-error-highlight: hsl(0, 60%, 95%);
+  --shadow-sm: 0 1px 3px hsl(222 20% 11% / 0.06);
+  --shadow-md: 0 4px 12px hsl(222 20% 11% / 0.09);
+  --shadow-lg: 0 8px 24px hsl(222 20% 11% / 0.12);
+}
+
+.dark {
+  --background: 222 24% 9%;
+  --foreground: 213 18% 88%;
+  --card: 222 20% 11%;
+  --card-foreground: 213 18% 88%;
+  --popover: 222 20% 11%;
+  --popover-foreground: 213 18% 88%;
+  --primary: 191 70% 50%;
+  --primary-foreground: 222 24% 9%;
+  --secondary: 222 18% 16%;
+  --secondary-foreground: 213 18% 76%;
+  --muted: 222 18% 16%;
+  --muted-foreground: 218 12% 54%;
+  --accent: 222 18% 16%;
+  --accent-foreground: 213 18% 76%;
+  --destructive: 0 62% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 222 16% 18%;
+  --input: 222 16% 18%;
+  --ring: 191 70% 50%;
+
+  --color-bg: hsl(222, 24%, 9%);
+  --color-surface: hsl(222, 20%, 11%);
+  --color-surface-2: hsl(222, 22%, 12.5%);
+  --color-surface-offset: hsl(222, 18%, 14%);
+  --color-border: hsl(222, 16%, 18%);
+  --color-text: hsl(213, 18%, 88%);
+  --color-text-muted: hsl(218, 12%, 54%);
+  --color-text-faint: hsl(218, 10%, 38%);
+  --color-primary: hsl(191, 70%, 50%);
+  --color-primary-hover: hsl(191, 70%, 60%);
+  --color-primary-highlight: hsl(191, 40%, 16%);
+  --color-success: hsl(142, 60%, 48%);
+  --color-success-highlight: hsl(142, 30%, 16%);
+  --color-warning: hsl(32, 90%, 56%);
+  --color-warning-highlight: hsl(32, 40%, 18%);
+  --color-error: hsl(0, 70%, 60%);
+  --color-error-highlight: hsl(0, 40%, 16%);
+  --shadow-sm: 0 1px 3px hsl(222 30% 5% / 0.3);
+  --shadow-md: 0 4px 12px hsl(222 30% 5% / 0.4);
+  --shadow-lg: 0 8px 24px hsl(222 30% 5% / 0.5);
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100dvh;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  line-height: 1.6;
+}
+
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); font-weight: 700; line-height: 1.2; text-wrap: balance; }
+p, li { text-wrap: pretty; }
+
+a, button, [role='button'] {
+  transition: color var(--transition-interactive), background var(--transition-interactive), border-color var(--transition-interactive), box-shadow var(--transition-interactive);
+  cursor: pointer;
+}
+
+button { background: none; border: none; }
+input, textarea, select { font: inherit; }
+
+::selection { background: var(--color-primary-highlight); color: var(--color-text); }
+:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* ─── Skeleton loader ───────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-offset) 25%, var(--color-border) 50%, var(--color-surface-offset) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+/* ─── Status badges ─────────────────────────────────────────────────────── */
+.badge-pending { background: var(--color-warning-highlight); color: var(--color-warning); }
+.badge-processing { background: var(--color-primary-highlight); color: var(--color-primary); }
+.badge-done { background: var(--color-success-highlight); color: var(--color-success); }
+.badge-error { background: var(--color-error-highlight); color: var(--color-error); }
+
+/* ─── Prose (wiki markdown rendering) ─────────────────────────────────── */
+.prose {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  line-height: 1.7;
+}
+.prose h1, .prose h2, .prose h3, .prose h4 { font-family: var(--font-display); margin-top: 1.5em; margin-bottom: 0.5em; color: var(--color-text); }
+.prose h1 { font-size: var(--text-lg); }
+.prose h2 { font-size: 1.1rem; }
+.prose h3 { font-size: 1rem; }
+.prose p { margin-bottom: 0.875em; max-width: 72ch; }
+.prose ul, .prose ol { padding-left: 1.5em; margin-bottom: 0.875em; }
+.prose li { margin-bottom: 0.25em; }
+.prose code { font-family: var(--font-mono); font-size: 0.875em; background: var(--color-surface-offset); padding: 0.125em 0.375em; border-radius: var(--radius-sm); }
+.prose pre { background: var(--color-surface-offset); padding: 1em; border-radius: var(--radius-md); overflow-x: auto; margin-bottom: 1em; }
+.prose pre code { background: none; padding: 0; }
+.prose blockquote { border-left: 3px solid var(--color-primary); padding-left: 1em; color: var(--color-text-muted); font-style: italic; margin: 1em 0; }
+.prose a { color: var(--color-primary); text-decoration: underline; }
+.prose hr { border: none; border-top: 1px solid var(--color-border); margin: 1.5em 0; }
+.prose table { width: 100%; border-collapse: collapse; margin-bottom: 1em; font-size: var(--text-xs); }
+.prose th, .prose td { border: 1px solid var(--color-border); padding: 0.5em 0.75em; text-align: left; }
+.prose th { background: var(--color-surface-offset); font-weight: 600; }
+
+/* ─── Chat message bubbles ──────────────────────────────────────────────── */
+.msg-user { background: var(--color-primary); color: white; border-radius: var(--radius-xl) var(--radius-xl) var(--radius-sm) var(--radius-xl); }
+.msg-assistant { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm) var(--radius-xl) var(--radius-xl) var(--radius-xl); }
+
+/* ─── Scrollbar (webkit) ────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-faint); }
+
+/* ─── Processing pulse animation ────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+.processing-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* ─── Wikilink highlight ────────────────────────────────────────────────── */
+.wikilink { color: var(--color-primary); font-weight: 500; cursor: pointer; }
+.wikilink:hover { text-decoration: underline; }
