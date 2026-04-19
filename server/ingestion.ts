@@ -88,32 +88,33 @@ export async function scanRawFolder(vaultRoot: string): Promise<{ newCount: numb
   return { newCount, changedCount, total };
 }
 
-const SUMMARIZE_PROMPT = `You are an expert knowledge base compiler. Your job is to read documents and produce DENSE, ACCURATE wiki pages — not vague summaries.
+const SUMMARIZE_PROMPT = `You are an expert knowledge base compiler for research scientists. Your job is to read documents and extract EVERY important detail into a structured wiki entry. Be exhaustive — a researcher must be able to answer precise questions from your output alone.
 
-Return ONLY valid JSON (no markdown fences) with EXACTLY these keys:
-{
-  "title": "Human-readable title (keep original title if available)",
-  "summary": "Comprehensive 3-5 sentence summary covering the core argument, main findings, and significance. Include specific numbers, names, or outcomes where present.",
-  "key_points": [
-    // 5-12 specific, detailed bullet points. Each should be a COMPLETE FACTUAL CLAIM.
-    // For research papers: include specific findings with numbers (e.g. '25% increase in median survival').
-    // For financial docs: include actual figures, dates, amounts.
-    // For guides/how-tos: include concrete steps or rules.
-    // NEVER write vague points like 'The study found interesting results.'
-  ],
-  "methodology": "(For research/academic docs only) 2-4 sentences on how the study was conducted — models used, sample sizes, techniques. Write null for non-research docs.",
-  "limitations": "(For research/academic docs) Explicit limitations, caveats, or weaknesses mentioned or implied: sample size, model validity, generalisability, ethical concerns, dose constraints. Be specific. Write null for non-research docs.",
-  "key_results": "(For research/academic docs) The most important quantitative or qualitative results in 2-3 sentences. Include numbers. Write null for non-research docs.",
-  "concepts": ["concept1", "concept2", ...], // 3-10 key concepts/entities (short sluggable strings)
-  "related_topics": ["topic1", "topic2", ...] // 2-5 related topic areas
-}
+You MUST return ONLY a valid JSON object. Do NOT wrap it in markdown fences. Do NOT add comments. Use EXACTLY these keys:
+
+title: string — The document's original title.
+
+summary: string — 3-5 sentences covering the core argument, main findings, and significance. Include specific numbers, names, and outcomes.
+
+key_points: array of strings — 6-15 bullet points. Each must be a COMPLETE, SPECIFIC FACTUAL CLAIM with numbers where available. Examples of GOOD points: "Median survival increased 25% (p<0.05) in the METH+doxorubicin group vs doxorubicin alone." Examples of BAD points: "The study found interesting results."
+
+methodology: string or null — For research/academic papers: 3-5 sentences on study design, animal model or cohort, sample sizes, interventions, doses, controls, statistical methods. For non-research documents: null.
+
+limitations: string or null — For research/academic papers: List EVERY limitation, caveat, and constraint explicitly or implicitly present. Include: animal model validity (e.g. rodent-only), sample sizes, generalisability to humans, drug scheduling constraints, regulatory/ethical barriers, single-dose ranges tested, cell line specificity, immunocompromised vs immunocompetent models, etc. Be exhaustive — this field is critical. For non-research documents: null.
+
+key_results: string or null — For research/academic papers: The most important quantitative and qualitative results in 3-5 sentences. Always include p-values, effect sizes, and specific numbers where reported. For non-research documents: null.
+
+concepts: array of strings — 4-10 key concepts, drug names, techniques, or entities as short lowercase sluggable strings.
+
+related_topics: array of strings — 2-5 related scientific or topical areas.
 
 CRITICAL RULES:
-- Be specific and factual. Generic or vague content is useless in a knowledge base.
-- If the document has a limitations section, extract it fully.
-- If asked about a research paper, a user should be able to get precise answers from your output.
-- For financial/personal docs: extract actual figures, account names, dates.
-- Do not invent information not present in the document.`;
+1. NEVER leave limitations, methodology, or key_results as null for a research paper — these fields exist specifically for papers.
+2. If the document has a Limitations section, copy its content faithfully and completely.
+3. If limitations are implicit (e.g. mouse model, single institution), still list them.
+4. Include actual numbers, percentages, p-values, sample sizes wherever they appear.
+5. Do not invent information not present in the document.
+6. Your output must be parseable by JSON.parse() — no trailing commas, no comments, valid string escaping.`;
 
 async function summarizeWithRetry(
   connectionId: number,
@@ -182,8 +183,14 @@ export async function processPendingFiles(vaultRoot: string): Promise<{ processe
           maxRetries
         );
 
-        // 3. Parse
+        // 3. Parse — log raw LLM output in dev so issues are diagnosable
+        if (process.env.NODE_ENV !== "production") {
+          console.log(`\n[ingestion] LLM raw output for "${doc.title}":\n${rawSummary.slice(0, 2000)}\n`);
+        }
         const result = parseSummaryFromLLM(rawSummary, doc.title);
+        if (process.env.NODE_ENV !== "production") {
+          console.log(`[ingestion] Parsed: limitations=${result.limitations ? '✓ '+result.limitations.slice(0,80)+'...' : 'NULL'}, methodology=${result.methodology ? '✓' : 'NULL'}, keyResults=${result.keyResults ? '✓' : 'NULL'}`);
+        }
 
         // 4. Write wiki page
         const wikiPath = writeSourceWikiPage(vaultRoot, file.path, result);

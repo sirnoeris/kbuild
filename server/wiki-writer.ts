@@ -21,24 +21,44 @@ export function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 }
 
+function coerceNullableString(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "boolean") return null;
+  const s = String(val).trim();
+  // LLMs sometimes literally write the string "null" or "N/A" when they mean absent
+  if (s === "" || s.toLowerCase() === "null" || s.toLowerCase() === "n/a" || s.toLowerCase() === "none") return null;
+  return s;
+}
+
 export function parseSummaryFromLLM(raw: string, fallbackTitle: string): SummaryResult {
-  // Try JSON first
-  try {
-    const jsonMatch = raw.match(/```json\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[1]);
+  // Try JSON — handle both bare JSON and markdown-fenced JSON
+  const candidates = [
+    // ```json ... ``` fences
+    raw.match(/```json\s*([\s\S]*?)```/)?.[1],
+    // ``` ... ``` fences (no lang tag)
+    raw.match(/```\s*([\s\S]*?)```/)?.[1],
+    // Bare JSON object
+    raw.match(/(\{[\s\S]*\})/)?.[1],
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed !== "object" || parsed === null) continue;
       return {
-        title: parsed.title ?? fallbackTitle,
-        summary: parsed.summary ?? "",
-        keyPoints: Array.isArray(parsed.key_points) ? parsed.key_points : (parsed.keyPoints ?? []),
-        methodology: (typeof parsed.methodology === "string" && parsed.methodology !== "null") ? parsed.methodology : null,
-        limitations: (typeof parsed.limitations === "string" && parsed.limitations !== "null") ? parsed.limitations : null,
-        keyResults: (typeof parsed.key_results === "string" && parsed.key_results !== "null") ? parsed.key_results : null,
-        concepts: Array.isArray(parsed.concepts) ? parsed.concepts : [],
-        relatedTopics: Array.isArray(parsed.related_topics) ? parsed.related_topics : (parsed.relatedTopics ?? []),
+        title: (typeof parsed.title === "string" && parsed.title.trim()) ? parsed.title.trim() : fallbackTitle,
+        summary: typeof parsed.summary === "string" ? parsed.summary : "",
+        keyPoints: Array.isArray(parsed.key_points) ? parsed.key_points.map(String) : (Array.isArray(parsed.keyPoints) ? parsed.keyPoints.map(String) : []),
+        methodology: coerceNullableString(parsed.methodology),
+        limitations: coerceNullableString(parsed.limitations),
+        keyResults: coerceNullableString(parsed.key_results ?? parsed.keyResults),
+        concepts: Array.isArray(parsed.concepts) ? parsed.concepts.map(String) : [],
+        relatedTopics: Array.isArray(parsed.related_topics) ? parsed.related_topics.map(String) : (Array.isArray(parsed.relatedTopics) ? parsed.relatedTopics.map(String) : []),
       };
+    } catch {
+      // try next candidate
     }
-  } catch {}
+  }
 
   // Fallback: parse sections
   const lines = raw.split("\n");
