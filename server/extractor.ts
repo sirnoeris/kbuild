@@ -4,12 +4,11 @@
  */
 import fs from "fs";
 import path from "path";
-import { createRequire } from "module";
-import { pathToFileURL } from "url";
-
-// __filename is available in both CJS (esbuild bundle) and ESM tsx (polyfilled).
-// Using pathToFileURL avoids any import.meta.url reference that triggers esbuild warnings.
-const _require = createRequire(pathToFileURL(__filename).href);
+// CJS interop: import as default — works in both ESM (tsx) and esbuild CJS bundle
+import pdfParse from "pdf-parse";
+import mammoth from "mammoth";
+import AdmZip from "adm-zip";
+import * as XLSX from "xlsx";
 
 export interface Document {
   path: string;
@@ -82,8 +81,6 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
       }
 
       case "pdf": {
-        // pdf-parse v1 exports a plain async function
-        const pdfParse: (buf: Buffer) => Promise<{ text: string; numpages: number }> = _require("pdf-parse");
         const buf = fs.readFileSync(absPath);
         const data = await pdfParse(buf);
         const text = data.text?.trim() ?? "";
@@ -97,7 +94,6 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
       }
 
       case "docx": {
-        const mammoth = _require("mammoth") as { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string }> };
         const buf = fs.readFileSync(absPath);
         const result = await mammoth.extractRawText({ buffer: buf });
         return { path: relPath, kind, title, text: result.value };
@@ -105,7 +101,6 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
 
       case "pptx": {
         // PPTX is a zip — extract slide XML text
-        const AdmZip = _require("adm-zip");
         const zip = new AdmZip(absPath);
         const slideEntries = zip.getEntries()
           .filter((e: any) => e.entryName.match(/ppt\/slides\/slide\d+\.xml$/))
@@ -121,7 +116,6 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
       }
 
       case "xlsx": {
-        const XLSX = _require("xlsx") as typeof import("xlsx");
         const wb = XLSX.readFile(absPath);
         const parts: string[] = [];
         for (const sheetName of wb.SheetNames) {
