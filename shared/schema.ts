@@ -21,6 +21,8 @@ export const vaultSettings = sqliteTable("vault_settings", {
   webSearchProvider: text("web_search_provider").notNull().default("brave"), // brave | serper | xai
   webSearchApiKey: text("web_search_api_key").notNull().default(""),          // used by brave & serper
   webSearchConnectionId: integer("web_search_connection_id"),                 // used by xai (points to a Connection row)
+  // Custom system prompt — overrides the built-in chat system prompt when set
+  customSystemPrompt: text("custom_system_prompt"),
 });
 
 export const insertVaultSettingsSchema = createInsertSchema(vaultSettings).omit({ id: true });

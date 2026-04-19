@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
 import { listModels } from "./llm-client.js";
-import { scanRawFolder, processPendingFiles, chatOverWiki, getIsProcessing, ingestionEvents, syncWikiToDb, performWebSearch, synthesiseWebAnswer } from "./ingestion.js";
+import { scanRawFolder, processPendingFiles, chatOverWiki, chatDirect, getIsProcessing, ingestionEvents, syncWikiToDb, performWebSearch, synthesiseWebAnswer, DEFAULT_CHAT_SYSTEM_BASE } from "./ingestion.js";
 import { insertConnectionSchema } from "../shared/schema.js";
 
 export function registerRoutes(httpServer: Server, app: Express) {
@@ -25,6 +25,32 @@ export function registerRoutes(httpServer: Server, app: Express) {
         }
       }
       res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // System prompt — get/set custom chat system prompt (vault is a singleton; vaultId is accepted but not used)
+  app.get("/api/vault/:vaultId/system-prompt", (_req, res) => {
+    const settings = storage.getVaultSettings();
+    const custom = settings.customSystemPrompt;
+    const isCustom = !!(custom && custom.trim());
+    res.json({
+      prompt: isCustom ? custom : DEFAULT_CHAT_SYSTEM_BASE,
+      isCustom,
+    });
+  });
+
+  app.put("/api/vault/:vaultId/system-prompt", (req, res) => {
+    try {
+      const { prompt } = req.body as { prompt: string | null };
+      const value = prompt && prompt.trim() ? prompt : null;
+      storage.updateVaultSettings({ customSystemPrompt: value } as any);
+      const isCustom = !!value;
+      res.json({
+        prompt: isCustom ? value : DEFAULT_CHAT_SYSTEM_BASE,
+        isCustom,
+      });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
@@ -293,14 +319,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   app.post("/api/conversations/:id/chat", async (req, res) => {
     const conversationId = parseInt(req.params.id);
-    const { message } = req.body;
+    const { message, mode } = req.body as { message: string; mode?: "kb" | "chat" };
     if (!message) return res.status(400).json({ error: "message required" });
+    const chatMode: "kb" | "chat" = mode === "chat" ? "chat" : "kb";
 
     const conv = storage.getConversation(conversationId);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     const settings = storage.getVaultSettings();
-    if (!settings.vaultPath) return res.status(400).json({ error: "No vault path set" });
+    if (chatMode === "kb" && !settings.vaultPath) return res.status(400).json({ error: "No vault path set" });
 
     // Save user message
     storage.createMessage({ conversationId, role: "user", content: message });
@@ -311,6 +338,18 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
 
     try {
+      if (chatMode === "chat") {
+        const { answer, contextFiles } = await chatDirect(conversationId, message);
+        const assistantMsg = storage.createMessage({
+          conversationId,
+          role: "assistant",
+          content: answer,
+          contextFiles: JSON.stringify(contextFiles),
+        });
+        res.json({ message: assistantMsg, contextFiles, mode: "chat" });
+        return;
+      }
+
       const pinnedFiles: string[] = JSON.parse(conv.pinnedFiles ?? "[]");
       const { answer, contextFiles, webSearchQuery } = await chatOverWiki(conversationId, message, pinnedFiles, settings.vaultPath);
 
@@ -321,7 +360,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         contextFiles: JSON.stringify(contextFiles),
       });
 
-      res.json({ message: assistantMsg, contextFiles, webSearchQuery });
+      res.json({ message: assistantMsg, contextFiles, webSearchQuery, mode: "kb" });
     } catch (err: any) {
       const errMsg = storage.createMessage({
         conversationId,

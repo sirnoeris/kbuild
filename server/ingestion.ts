@@ -311,10 +311,10 @@ export function getIsProcessing() { return isProcessing; }
 // Grok-3-fast has 128k context, Gemini Flash has 1M — both can handle this comfortably.
 const TOKEN_BUDGET = 100_000;
 
-function buildChatSystem(): string {
-  const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
-  return `You are a precise research assistant with access to a curated knowledge base.
-Today's date is ${today}.
+// Static base of the default chat system prompt — exported so the Settings UI
+// can show it as the "default" and so custom prompts can replace it.
+// The current date is prepended at call time; see buildChatSystem().
+export const DEFAULT_CHAT_SYSTEM_BASE = `You are a precise research assistant with access to a curated knowledge base.
 Answer questions using ONLY the wiki documents provided below.
 Be specific — include exact numbers, p-values, names, dates, and quotes from the source where relevant.
 Always cite which document(s) you drew from, by title.
@@ -333,6 +333,16 @@ Format — include this exact tag at the END of your answer, on its own line:
 [[WEB_SEARCH: <a concise, specific search query including ticker/name and today's date>]]
 
 Do NOT emit it for general knowledge questions that don't require live data.`;
+
+export const DEFAULT_CHAT_DIRECT_SYSTEM = `You are a helpful assistant. Answer the user's question directly and conversationally.`;
+
+function todayString(): string {
+  return new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function buildChatSystem(customPrompt?: string | null): string {
+  const base = (customPrompt && customPrompt.trim()) ? customPrompt : DEFAULT_CHAT_SYSTEM_BASE;
+  return `Today is ${todayString()}.\n\n${base}`;
 }
 
 export async function chatOverWiki(
@@ -402,7 +412,7 @@ export async function chatOverWiki(
 
   // 7. Call LLM
   const messages = [
-    { role: "system" as const, content: buildChatSystem() + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") + liveDataNote },
+    { role: "system" as const, content: buildChatSystem(settings.customSystemPrompt) + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") + liveDataNote },
     ...historyMessages,
     { role: "user" as const, content: userMessage },
   ];
@@ -417,6 +427,35 @@ export async function chatOverWiki(
   const answer = raw.replace(/\n?\[\[WEB_SEARCH:[^\]]*\]\]/gi, "").trim();
 
   return { answer, contextFiles, webSearchQuery };
+}
+
+// ─── Direct Chat (no KB retrieval) ──────────────────────────────────────────
+// Bypasses vector/FTS retrieval entirely — just talks to the chat LLM with
+// conversation history. Used by the "Chat Mode" toggle in the UI.
+export async function chatDirect(
+  conversationId: number,
+  userMessage: string,
+): Promise<{ answer: string; contextFiles: string[] }> {
+  const settings = storage.getVaultSettings();
+  if (!settings.chatConnectionId || !settings.chatModel) {
+    throw new Error("No chat model configured. Please configure a connection and model in Settings.");
+  }
+
+  const history = storage.getMessages(conversationId).slice(-8);
+  const historyMessages = history.map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  const customPrompt = settings.customSystemPrompt;
+  const base = (customPrompt && customPrompt.trim()) ? customPrompt : DEFAULT_CHAT_DIRECT_SYSTEM;
+  const systemContent = `Today is ${todayString()}.\n\n${base}`;
+
+  const messages = [
+    { role: "system" as const, content: systemContent },
+    ...historyMessages,
+    { role: "user" as const, content: userMessage },
+  ];
+
+  const result = await callLLM(settings.chatConnectionId, settings.chatModel, messages, { temperature: 0.7, max_tokens: 2048 });
+  return { answer: (result.content as string).trim(), contextFiles: [] };
 }
 
 // ─── Web Search ─────────────────────────────────────────────────────────────

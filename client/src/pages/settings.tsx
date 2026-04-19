@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,14 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Edit2, Trash2, Loader2, CheckCircle2, XCircle,
   RefreshCw, Eye, EyeOff, Zap, ChevronDown, AlertCircle,
-  Settings as SettingsIcon, Link2, Brain, FileType, Sliders, Globe, Search, ExternalLink
+  Settings as SettingsIcon, Link2, Brain, FileType, Sliders, Globe, Search, ExternalLink,
+  FileCode, RotateCcw, Save
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 
 interface Connection {
   id: number;
@@ -59,7 +64,7 @@ const PRESET_URLS: Record<string, string> = {
   custom_local: "http://localhost:11434/v1",
 };
 
-type SettingsTab = "connections" | "models" | "formats" | "behavior" | "websearch";
+type SettingsTab = "connections" | "models" | "formats" | "behavior" | "websearch" | "systemprompt";
 
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "connections", label: "Connections", icon: <Link2 size={14} /> },
@@ -67,6 +72,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "formats", label: "Formats", icon: <FileType size={14} /> },
   { id: "behavior", label: "Behavior", icon: <Sliders size={14} /> },
   { id: "websearch", label: "Web Search", icon: <Globe size={14} /> },
+  { id: "systemprompt", label: "System Prompt", icon: <FileCode size={14} /> },
 ];
 
 export default function Settings() {
@@ -109,6 +115,7 @@ export default function Settings() {
           {activeTab === "formats" && <FormatsTab />}
           {activeTab === "behavior" && <BehaviorTab />}
           {activeTab === "websearch" && <WebSearchTab />}
+          {activeTab === "systemprompt" && <SystemPromptTab />}
         </div>
       </div>
     </div>
@@ -934,6 +941,159 @@ function WebSearchTab() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── System Prompt Tab ────────────────────────────────────────────────────────
+function SystemPromptTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  // Vault is a singleton (id=1) — path segment is accepted by the server but unused
+  const VAULT_ID = 1;
+
+  const { data, isLoading } = useQuery<{ prompt: string; isCustom: boolean }>({
+    queryKey: ["/api/vault", VAULT_ID, "system-prompt"],
+    queryFn: () => apiRequest("GET", `/api/vault/${VAULT_ID}/system-prompt`).then(r => r.json()),
+  });
+
+  // Keep the draft in sync with server data when not editing
+  useEffect(() => {
+    if (!isEditing && data) setDraft(data.prompt);
+  }, [data, isEditing]);
+
+  const saveMutation = useMutation({
+    mutationFn: (prompt: string | null) =>
+      apiRequest("PUT", `/api/vault/${VAULT_ID}/system-prompt`, { prompt }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/vault", VAULT_ID, "system-prompt"] });
+      setIsEditing(false);
+      toast({ title: "System prompt saved" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  if (isLoading || !data) return <div className="flex justify-center py-8"><Loader2 className="animate-spin" /></div>;
+
+  const isCustom = data.isCustom;
+
+  const handleSave = () => saveMutation.mutate(draft);
+  const handleRestoreConfirmed = () => {
+    saveMutation.mutate(null);
+    setShowConfirm(false);
+  };
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "0.95rem", color: "var(--color-text)" }}>
+            Chat system prompt
+          </h2>
+          <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+            The system prompt sent to the chat LLM on every turn. Today's date is always prepended automatically.
+          </p>
+        </div>
+        <span
+          data-testid="badge-prompt-status"
+          className="px-2 py-1 rounded-md text-xs font-semibold shrink-0"
+          style={{
+            background: isCustom ? "var(--color-primary-highlight)" : "var(--color-surface-offset)",
+            color: isCustom ? "var(--color-primary)" : "var(--color-text-muted)",
+            border: `1px solid ${isCustom ? "var(--color-primary)" : "var(--color-border)"}`,
+          }}
+        >
+          {isCustom ? "Custom" : "Default (unmodified)"}
+        </span>
+      </div>
+
+      <textarea
+        data-testid="textarea-system-prompt"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        readOnly={!isEditing}
+        rows={16}
+        spellCheck={false}
+        className="w-full"
+        style={{
+          padding: "0.75rem 1rem",
+          borderRadius: "0.5rem",
+          background: "var(--color-surface)",
+          border: `1px solid ${isEditing ? "var(--color-primary)" : "var(--color-border)"}`,
+          color: "var(--color-text)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "0.8rem",
+          lineHeight: 1.55,
+          outline: "none",
+          resize: "vertical",
+          opacity: isEditing ? 1 : 0.85,
+          cursor: isEditing ? "text" : "default",
+        }}
+      />
+
+      <div className="flex items-center gap-2">
+        {!isEditing ? (
+          <Button
+            data-testid="button-edit-prompt"
+            size="sm"
+            onClick={() => setIsEditing(true)}
+          >
+            <Edit2 size={12} className="mr-1.5" /> Edit
+          </Button>
+        ) : (
+          <>
+            <Button
+              data-testid="button-save-prompt"
+              size="sm"
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending ? <Loader2 size={12} className="animate-spin mr-1.5" /> : <Save size={12} className="mr-1.5" />}
+              Save
+            </Button>
+            <Button
+              data-testid="button-cancel-prompt"
+              size="sm"
+              variant="ghost"
+              onClick={() => { setIsEditing(false); setDraft(data.prompt); }}
+              disabled={saveMutation.isPending}
+            >
+              Cancel
+            </Button>
+          </>
+        )}
+        <div className="flex-1" />
+        <Button
+          data-testid="button-restore-prompt"
+          size="sm"
+          variant="outline"
+          onClick={() => setShowConfirm(true)}
+          disabled={!isCustom || saveMutation.isPending}
+        >
+          <RotateCcw size={12} className="mr-1.5" /> Restore to Default
+        </Button>
+      </div>
+
+      <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore default system prompt?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will discard your custom system prompt and revert the chat to the built-in default. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRestoreConfirmed} data-testid="button-confirm-restore">
+              Restore default
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

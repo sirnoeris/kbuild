@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import {
   MessageSquare, Plus, Send, Loader2, BookOpen, Pin, PinOff,
-  Trash2, ChevronRight, Bot, User, X, FileText, Sparkles
+  Trash2, ChevronRight, Bot, User, X, FileText, Sparkles, Database, MessageCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
@@ -46,9 +46,14 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [selectedConvId, setSelectedConvId] = useState<number | null>(params.id ? parseInt(params.id) : null);
   const [previewWiki, setPreviewWiki] = useState<WikiPage & { rawContent?: string } | null>(null);
-  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
+  const [optimisticMessage, setOptimisticMessage] = useState<{ text: string; mode: "kb" | "chat" } | null>(null);
   const [webSearchSuggestion, setWebSearchSuggestion] = useState<{ query: string; originalQuestion: string; convId: number } | null>(null);
   const [webSearchPending, setWebSearchPending] = useState(false);
+  const [chatMode, setChatMode] = useState<"kb" | "chat">("kb");
+  // Per-conversation map of messageId -> mode (local only, not persisted).
+  // Only messages produced in "chat" mode are tracked — KB is the default
+  // and needs no badge, so absence of an id here implies KB.
+  const [messageModes, setMessageModes] = useState<Record<number, "chat">>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -88,6 +93,12 @@ export default function Chat() {
     }
   }, [params.id, conversations]);
 
+  // Reset mode + per-message-mode map when switching conversations
+  useEffect(() => {
+    setChatMode("kb");
+    setMessageModes({});
+  }, [selectedConvId]);
+
   const createConvMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/conversations", { title: "New conversation" }).then(r => r.json()),
     onSuccess: (conv: Conversation) => {
@@ -107,12 +118,18 @@ export default function Chat() {
   });
 
   const chatMutation = useMutation({
-    mutationFn: ({ convId, message }: { convId: number; message: string }) =>
-      apiRequest("POST", `/api/conversations/${convId}/chat`, { message }).then(r => r.json()),
+    mutationFn: ({ convId, message, mode }: { convId: number; message: string; mode: "kb" | "chat" }) =>
+      apiRequest("POST", `/api/conversations/${convId}/chat`, { message, mode }).then(r => r.json()),
     onSuccess: (data, variables) => {
       setOptimisticMessage(null);
-      // If the LLM flagged that live web data would help, surface approval card
-      if (data.webSearchQuery) {
+      // Tag the assistant message with the mode it was produced in. The
+      // accompanying user message is tagged by content-match after the
+      // messages query refetches (see effect below).
+      if (data.message?.id && variables.mode === "chat") {
+        setMessageModes(prev => ({ ...prev, [data.message.id]: "chat" }));
+      }
+      // Only KB mode triggers the optional web-search suggestion
+      if (data.webSearchQuery && variables.mode === "kb") {
         setWebSearchSuggestion({
           query: data.webSearchQuery,
           originalQuestion: variables.message,
@@ -129,6 +146,32 @@ export default function Chat() {
       toast({ title: "Chat error", description: e.message, variant: "destructive" });
     },
   });
+
+  // When messages refetch, tag the user message that preceded any chat-mode
+  // assistant reply so the badge appears on both sides of the exchange.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    setMessageModes(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (m.role === "assistant" && next[m.id] === "chat") {
+          // find the closest preceding user message
+          for (let j = i - 1; j >= 0; j--) {
+            if (messages[j].role === "user") {
+              if (next[messages[j].id] !== "chat") {
+                next[messages[j].id] = "chat";
+                changed = true;
+              }
+              break;
+            }
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [messages]);
 
   const pinMutation = useMutation({
     mutationFn: ({ convId, files }: { convId: number; files: string[] }) =>
@@ -147,9 +190,10 @@ export default function Chat() {
       navigate(`/chat/${convId}`);
     }
     const msg = input;
+    const mode = chatMode;
     setInput("");
-    setOptimisticMessage(msg);
-    chatMutation.mutate({ convId: convId!, message: msg });
+    setOptimisticMessage({ text: msg, mode });
+    chatMutation.mutate({ convId: convId!, message: msg, mode });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -266,16 +310,24 @@ export default function Chat() {
                   </p>
                 </div>
               ) : messages.map(msg => (
-                <ChatMessage key={msg.id} message={msg} onClickSource={openWikiPreview} />
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  mode={messageModes[msg.id] ?? "kb"}
+                  onClickSource={openWikiPreview}
+                />
               ))}
 
               {/* Optimistic user message — shown immediately on send, before server confirms */}
               {optimisticMessage && (
                 <div className="flex items-start gap-3 justify-end">
-                  <div className="msg-user px-4 py-3 max-w-[75%]">
-                    <p style={{ fontSize: "var(--text-sm)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                      {optimisticMessage}
-                    </p>
+                  <div className="flex flex-col items-end max-w-[75%]">
+                    <div className="msg-user px-4 py-3">
+                      <p style={{ fontSize: "var(--text-sm)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                        {optimisticMessage.text}
+                      </p>
+                    </div>
+                    {optimisticMessage.mode === "chat" && <ChatModeBadge />}
                   </div>
                   <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--color-surface-offset)" }}>
                     <User size={14} style={{ color: "var(--color-text-muted)" }} />
@@ -361,6 +413,36 @@ export default function Chat() {
                   ))}
                 </div>
               )}
+              {/* Mode toggle — above the textarea */}
+              <div className="flex items-center gap-1.5 mb-2">
+                <button
+                  data-testid="toggle-chat-mode"
+                  onClick={() => setChatMode(m => m === "kb" ? "chat" : "kb")}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                  title={chatMode === "kb" ? "KB Mode — answers use your knowledge base" : "Chat Mode — direct LLM, bypasses the knowledge base"}
+                  style={
+                    chatMode === "chat"
+                      ? {
+                          background: "var(--color-primary)",
+                          color: "#fff",
+                          border: "1px solid var(--color-primary)",
+                        }
+                      : {
+                          background: "transparent",
+                          color: "var(--color-text-muted)",
+                          border: "1px solid var(--color-border)",
+                        }
+                  }
+                >
+                  {chatMode === "kb"
+                    ? <><Database size={11} /> KB</>
+                    : <><MessageCircle size={11} /> Chat</>}
+                </button>
+                <span style={{ fontSize: "0.7rem", color: "var(--color-text-faint)" }}>
+                  {chatMode === "kb" ? "Using knowledge base" : "Bypassing KB — direct chat"}
+                </span>
+              </div>
+
               <div className="flex items-end gap-2">
                 <textarea
                   data-testid="input-chat"
@@ -368,7 +450,9 @@ export default function Chat() {
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask about your knowledge base… (Enter to send, Shift+Enter for newline)"
+                  placeholder={chatMode === "kb"
+                    ? "Ask about your knowledge base… (Enter to send, Shift+Enter for newline)"
+                    : "Chat directly with the LLM… (Enter to send, Shift+Enter for newline)"}
                   rows={1}
                   className="flex-1 resize-none px-3 py-2.5 rounded-xl text-sm"
                   style={{
@@ -462,11 +546,37 @@ export default function Chat() {
   );
 }
 
-function ChatMessage({ message, onClickSource }: { message: Message; onClickSource: (path: string) => void }) {
+function ChatModeBadge() {
+  return (
+    <span
+      data-testid="badge-chat-mode"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold mt-1"
+      style={{
+        background: "var(--color-primary-highlight)",
+        color: "var(--color-primary)",
+        border: "1px solid var(--color-primary)",
+        fontSize: "0.65rem",
+        lineHeight: 1,
+      }}
+    >
+      <MessageCircle size={9} /> Chat
+    </span>
+  );
+}
+
+function ChatMessage({ message, mode, onClickSource }: { message: Message; mode: "kb" | "chat"; onClickSource: (path: string) => void }) {
   const contextFiles: string[] = (() => {
     if (!message.contextFiles) return [];
     try { return JSON.parse(message.contextFiles); } catch { return []; }
   })();
+
+  const isChatMode = mode === "chat";
+
+  // Chat Mode assistant bubble gets a subtle accent-colored left border + tint
+  // so it's visually distinct from the default KB answer look.
+  const assistantChatStyle: React.CSSProperties = isChatMode
+    ? { maxWidth: "100%", borderLeft: "3px solid var(--color-primary)", background: "var(--color-primary-highlight)" }
+    : { maxWidth: "100%" };
 
   return (
     <div className={cn("flex items-start gap-3", message.role === "user" ? "flex-row-reverse" : "")}>
@@ -479,12 +589,17 @@ function ChatMessage({ message, onClickSource }: { message: Message; onClickSour
           : <Bot size={13} style={{ color: "var(--color-primary)" }} />}
       </div>
 
-      <div className="flex-1 max-w-[85%]">
-        <div className={cn("px-4 py-3", message.role === "user" ? "msg-user" : "msg-assistant prose")} style={{ maxWidth: "100%" }}>
+      <div className={cn("flex-1 max-w-[85%] flex flex-col", message.role === "user" ? "items-end" : "items-start")}>
+        <div
+          className={cn("px-4 py-3", message.role === "user" ? "msg-user" : "msg-assistant prose")}
+          style={message.role === "assistant" ? assistantChatStyle : { maxWidth: "100%" }}
+        >
           {message.role === "user"
             ? <p style={{ color: "white", fontSize: "var(--text-sm)", margin: 0 }}>{message.content}</p>
             : <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>}
         </div>
+
+        {isChatMode && <ChatModeBadge />}
 
         {message.role === "assistant" && contextFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">

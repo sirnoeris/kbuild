@@ -113,6 +113,9 @@ if (!colNames.has("web_search_api_key")) {
 if (!colNames.has("web_search_connection_id")) {
   sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_connection_id INTEGER");
 }
+if (!colNames.has("custom_system_prompt")) {
+  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN custom_system_prompt TEXT");
+}
 
 export interface IStorage {
   // Vault
