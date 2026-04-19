@@ -281,7 +281,14 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Messages ─────────────────────────────────────────────────────────────
   app.get("/api/conversations/:id/messages", (req, res) => {
-    res.json(storage.getMessages(parseInt(req.params.id)));
+    // Strip internal [WEB SEARCH RESULT] marker used for history detection
+    // so it doesn't leak to the UI.
+    const msgs = storage.getMessages(parseInt(req.params.id)).map(m =>
+      m.role === "assistant" && m.content.startsWith("[WEB SEARCH RESULT]\n")
+        ? { ...m, content: m.content.slice("[WEB SEARCH RESULT]\n".length) }
+        : m
+    );
+    res.json(msgs);
   });
 
   app.post("/api/conversations/:id/chat", async (req, res) => {
@@ -338,12 +345,14 @@ export function registerRoutes(httpServer: Server, app: Express) {
         query,
         snippet,
       );
-      // Save as assistant message if conversation ID provided
+      // Save as assistant message if conversation ID provided.
+      // Prefix with a marker so future turns can detect that live data was
+      // already fetched and avoid triggering a redundant web search.
       if (conversationId) {
         storage.createMessage({
           conversationId,
           role: "assistant",
-          content: answer,
+          content: `[WEB SEARCH RESULT]\n${answer}`,
           contextFiles: JSON.stringify([]),
         });
       }

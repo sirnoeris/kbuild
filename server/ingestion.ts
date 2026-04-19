@@ -391,9 +391,18 @@ export async function chatOverWiki(
   const history = storage.getMessages(conversationId).slice(-8); // last 8 messages
   const historyMessages = history.map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
 
+  // If a recent assistant turn already contains fetched live data, tell the
+  // LLM to prefer answering from it instead of emitting another web-search tag.
+  const hasRecentLiveData = history.some(
+    m => m.role === "assistant" && m.content.startsWith("[WEB SEARCH RESULT]")
+  );
+  const liveDataNote = hasRecentLiveData
+    ? "\n\n# Recently Fetched Live Data\nThe following live web search result was already fetched earlier in this conversation and is present in the chat history above (marked with [WEB SEARCH RESULT]). If the user's follow-up question can be answered using this data, answer it directly. Do NOT emit [[WEB_SEARCH:...]] — that would cause a redundant search. Only emit [[WEB_SEARCH:...]] if the user is asking about something genuinely different that requires NEW live data not already present in the history."
+    : "";
+
   // 7. Call LLM
   const messages = [
-    { role: "system" as const, content: buildChatSystem() + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") },
+    { role: "system" as const, content: buildChatSystem() + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") + liveDataNote },
     ...historyMessages,
     { role: "user" as const, content: userMessage },
   ];
