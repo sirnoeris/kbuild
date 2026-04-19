@@ -311,19 +311,29 @@ export function getIsProcessing() { return isProcessing; }
 // Grok-3-fast has 128k context, Gemini Flash has 1M — both can handle this comfortably.
 const TOKEN_BUDGET = 100_000;
 
-const CHAT_SYSTEM = `You are a precise research assistant with access to a curated knowledge base.
+function buildChatSystem(): string {
+  const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
+  return `You are a precise research assistant with access to a curated knowledge base.
+Today's date is ${today}.
 Answer questions using ONLY the wiki documents provided below.
 Be specific — include exact numbers, p-values, names, dates, and quotes from the source where relevant.
 Always cite which document(s) you drew from, by title.
 If the information is not present in the provided documents, say so clearly — do not speculate or invent.
 
-IMPORTANT: If the question requires real-time, live, or very recent data that is clearly not in the wiki
-(e.g. current stock prices, today's news, live exchange rates, recent events after the document dates),
-include this exact tag at the END of your answer, on its own line:
-[[WEB_SEARCH: <a concise search query that would answer the question>]]
+IMPORTANT — WEB SEARCH RULE:
+If the user asks for anything described as "current", "today", "now", "latest", "live", or "real-time"
+(e.g. current stock price, today's value, latest news, live exchange rate),
+YOU MUST emit the web search tag — even if the KB contains older data on the same topic.
+Do NOT answer with stale KB data as if it were current. Instead, provide what the KB shows,
+then always append the tag so live data can be fetched.
 
-Only emit this tag when the KB genuinely cannot answer and real-time data would help.
-Do NOT emit it for general knowledge questions or things that don't need live data.`;
+Also emit the tag when the KB clearly lacks the answer entirely.
+
+Format — include this exact tag at the END of your answer, on its own line:
+[[WEB_SEARCH: <a concise, specific search query including ticker/name and today's date>]]
+
+Do NOT emit it for general knowledge questions that don't require live data.`;
+}
 
 export async function chatOverWiki(
   conversationId: number,
@@ -383,7 +393,7 @@ export async function chatOverWiki(
 
   // 7. Call LLM
   const messages = [
-    { role: "system" as const, content: CHAT_SYSTEM + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") },
+    { role: "system" as const, content: buildChatSystem() + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") },
     ...historyMessages,
     { role: "user" as const, content: userMessage },
   ];
@@ -446,7 +456,7 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
       },
       body: JSON.stringify({
         model: "grok-4-fast",     // current Responses API model with web_search support
-        input: [{ role: "user", content: query }],
+        input: [{ role: "user", content: `Today is ${new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}. ${query}` }],
         tools: [{ type: "web_search" }],
       }),
     });
