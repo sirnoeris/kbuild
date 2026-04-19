@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
 import { listModels } from "./llm-client.js";
-import { scanRawFolder, processPendingFiles, chatOverWiki, getIsProcessing, ingestionEvents, syncWikiToDb } from "./ingestion.js";
+import { scanRawFolder, processPendingFiles, chatOverWiki, getIsProcessing, ingestionEvents, syncWikiToDb, performWebSearch, synthesiseWebAnswer } from "./ingestion.js";
 import { insertConnectionSchema } from "../shared/schema.js";
 
 export function registerRoutes(httpServer: Server, app: Express) {
@@ -305,7 +305,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
     try {
       const pinnedFiles: string[] = JSON.parse(conv.pinnedFiles ?? "[]");
-      const { answer, contextFiles } = await chatOverWiki(conversationId, message, pinnedFiles, settings.vaultPath);
+      const { answer, contextFiles, webSearchQuery } = await chatOverWiki(conversationId, message, pinnedFiles, settings.vaultPath);
 
       const assistantMsg = storage.createMessage({
         conversationId,
@@ -314,7 +314,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         contextFiles: JSON.stringify(contextFiles),
       });
 
-      res.json({ message: assistantMsg, contextFiles });
+      res.json({ message: assistantMsg, contextFiles, webSearchQuery });
     } catch (err: any) {
       const errMsg = storage.createMessage({
         conversationId,
@@ -322,6 +322,34 @@ export function registerRoutes(httpServer: Server, app: Express) {
         content: `Error: ${err.message}`,
       });
       res.status(500).json({ message: errMsg, error: err.message });
+    }
+  });
+
+  // ─── Web Search ──────────────────────────────────────────────────────────
+  // POST /api/web-search — perform live web search and synthesise answer
+  app.post("/api/web-search", async (req: Request, res: Response) => {
+    const { query, originalQuestion, conversationId } = req.body;
+    if (!query) return res.status(400).json({ error: "query required" });
+    try {
+      const { snippet, results } = await performWebSearch(query);
+      const answer = await synthesiseWebAnswer(
+        conversationId ?? 0,
+        originalQuestion ?? query,
+        query,
+        snippet,
+      );
+      // Save as assistant message if conversation ID provided
+      if (conversationId) {
+        storage.createMessage({
+          conversationId,
+          role: "assistant",
+          content: answer,
+          contextFiles: JSON.stringify([]),
+        });
+      }
+      res.json({ answer, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

@@ -4,18 +4,18 @@
 
 Inspired by [Andrej Karpathy's LLM Knowledge Base pattern](https://x.com/karpathy/status/2039805659525644595): drop raw files into `raw/`, let an LLM compile them into interlinked Markdown in `wiki/`, then chat over the wiki using full-text search + context packing. Obsidian works great as a frontend for the wiki.
 
-![KBuild Screenshot](https://raw.githubusercontent.com/sirnoeris/kbuild/main/docs/screenshot.png)
-
 ---
 
 ## Features
 
 - **Vault management** — point KBuild at any folder; it creates `raw/`, `wiki/`, and `outputs/` automatically
-- **File ingestion** — processes PDF, DOCX, PPTX, XLSX, HTML, CSV, Markdown, and TXT into structured wiki pages
-- **Wiki compiler** — each source gets its own `wiki/sources/<slug>.md` page; cross-topic pages land in `wiki/topics/`
-- **Chat over wiki** — full-text search (SQLite FTS5) packs the most relevant wiki pages into context; no vector DB needed
+- **File ingestion** — processes PDF, DOCX, PPTX, XLSX, HTML, CSV, Markdown, and TXT into full-content wiki pages
+- **Full-text wiki** — every source becomes a complete Markdown wiki page; no summarisation, no data loss
+- **Chat over wiki** — FTS5 full-text search packs the most relevant wiki pages into context; no vector DB needed
+- **Web search** — when the KB doesn't have live data (e.g. current prices, recent news), the LLM suggests a web search and waits for your approval before executing
 - **Multiple LLM providers** — OpenRouter, xAI Grok, local Ollama, or any OpenAI-compatible endpoint
 - **Separate models** — choose one model for processing/ingestion and another for chat
+- **Per-file and global reprocess** — reprocess any file individually or reset everything and start fresh
 - **Dark mode first** — system preference respected, toggle in sidebar
 - **Live progress** — SSE-powered real-time updates during ingestion
 
@@ -32,7 +32,7 @@ kb-app/
 ├── server/          # Express backend (TypeScript)
 │   ├── extractor.ts    # File → plain text extraction
 │   ├── wiki-writer.ts  # Plain text → wiki Markdown
-│   ├── ingestion.ts    # Orchestration + SSE events
+│   ├── ingestion.ts    # Orchestration + SSE events + web search
 │   ├── llm-client.ts   # OpenAI-compatible LLM client
 │   ├── storage.ts      # SQLite via Drizzle ORM + FTS5
 │   └── routes.ts       # REST API routes
@@ -41,7 +41,7 @@ kb-app/
 └── dist/            # Production build output (git-ignored)
 ```
 
-The app runs as a local server (`localhost:5000`) — **your files and API keys never leave your machine.**
+The app runs as a local server (`localhost:3131`) — **your files and API keys never leave your machine.**
 
 ---
 
@@ -70,7 +70,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5000](http://localhost:5000) in your browser.
+Open [http://localhost:3131](http://localhost:3131) in your browser.
 
 ### First-time setup in the UI
 
@@ -80,6 +80,8 @@ Open [http://localhost:5000](http://localhost:5000) in your browser.
    - **xAI Grok** — `https://api.x.ai/v1` + your xAI API key
    - **Local (Ollama)** — `http://localhost:11434/v1` — no key needed
 3. **Select models** — go to **Settings → Models**, click "Refresh" next to each dropdown, and choose your processing and chat models.
+   - Recommended processing model: `google/gemini-2.5-flash` (via OpenRouter)
+   - Recommended chat model: `x-ai/grok-4.1-fast` (via OpenRouter)
 4. **Drop files into `raw/`** — add PDFs, Word docs, CSVs, or any supported file.
 5. **Scan** — click "Scan raw/" in the Library view to detect new files.
 6. **Process** — click "Process raw/" to compile them into the wiki.
@@ -113,30 +115,21 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5000](http://localhost:5000) in your browser.
+Open [http://localhost:3131](http://localhost:3131) in your browser.
 
 > **Note for Windows users:** The vault path uses standard Windows paths (e.g. `C:\Users\YourName\Documents\my-vault`). You can paste these directly into the vault chooser dialog.
 
 ### Running as a background service on Windows (optional)
 
-If you want KBuild to start automatically and run in the background:
-
 ```powershell
-# Install pm2 globally
 npm install -g pm2
-
-# Build first
 npm run build
-
-# Start with pm2
 pm2 start "npm start" --name kbuild
-
-# Auto-start on login
 pm2 startup
 pm2 save
 ```
 
-Then access it at [http://localhost:5000](http://localhost:5000) anytime.
+Then access it at [http://localhost:3131](http://localhost:3131) anytime.
 
 ---
 
@@ -144,12 +137,13 @@ Then access it at [http://localhost:5000](http://localhost:5000) anytime.
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| Markdown | `.md` | Copied as-is, re-formatted into wiki structure |
+| Markdown | `.md` | Copied as-is, reformatted into wiki structure |
 | Plain text | `.txt` | Direct ingestion |
 | PDF | `.pdf` | Text extraction (not OCR — scanned PDFs won't work) |
 | Word | `.docx` | Paragraph + heading extraction |
 | PowerPoint | `.pptx` | Slide text extraction |
-| Excel / CSV | `.xlsx`, `.csv` | Table-to-markdown conversion |
+| Excel | `.xlsx` | Table-to-markdown conversion |
+| CSV | `.csv` | Table-to-markdown conversion |
 | HTML | `.html` | Tag-stripped text extraction |
 
 ---
@@ -160,8 +154,8 @@ Then access it at [http://localhost:5000](http://localhost:5000) anytime.
 1. Sign up at [openrouter.ai](https://openrouter.ai)
 2. Get your key at [openrouter.ai/keys](https://openrouter.ai/keys)
 3. In KBuild Settings → Connections → Add: type `OpenRouter`, paste your key
-4. Good free/cheap models for processing: `google/gemini-flash-1.5`, `meta-llama/llama-3.1-8b-instruct:free`
-5. Good models for chat: `anthropic/claude-3.5-haiku`, `openai/gpt-4o-mini`
+4. Recommended processing model: `google/gemini-2.5-flash`
+5. Recommended chat model: `x-ai/grok-4.1-fast` ($0.20/$0.50 per M tokens)
 
 ### xAI Grok
 1. Get your key at [console.x.ai](https://console.x.ai)
@@ -175,10 +169,25 @@ Then access it at [http://localhost:5000](http://localhost:5000) anytime.
 
 ---
 
+## Web Search
+
+When you ask a question that requires live or recent data (e.g. current stock prices, today's news), the LLM will say so in its answer and propose a web search. An inline card appears:
+
+```
+The knowledge base doesn't have live data for this. Want me to search the web?
+"TSLA current stock price April 2026"
+[ Search the web ]  [ Dismiss ]
+```
+
+- **Approve** → KBuild queries DuckDuckGo (no API key needed), synthesises the results with your chat model, and posts the answer inline.
+- **Dismiss** → card disappears, no search is performed.
+
+---
+
 ## Development Scripts
 
 ```bash
-npm run dev      # Start dev server with hot reload (port 5000)
+npm run dev      # Start dev server with hot reload (port 3131)
 npm run build    # Build client + server for production
 npm start        # Run production build
 npm run check    # TypeScript type check
@@ -191,7 +200,7 @@ npm run check    # TypeScript type check
 Create a `.env` file in the project root to override defaults:
 
 ```env
-PORT=5000          # Server port (default: 5000)
+PORT=3131          # Server port (default: 3131)
 ```
 
 > **Security note:** Your LLM API keys are stored in the local SQLite database (`kb.db`) and never transmitted anywhere except to the LLM provider you configure. The database file is excluded from git.
@@ -200,11 +209,11 @@ PORT=5000          # Server port (default: 5000)
 
 ## Tips
 
-- **Use Obsidian as a wiki viewer** — open your vault folder in Obsidian. The compiled `wiki/` pages use standard Markdown with YAML frontmatter and `[[wikilinks]]`, so Obsidian's graph view, backlinks, and search all work natively.
+- **Use Obsidian as a wiki viewer** — open your vault folder in Obsidian. The compiled `wiki/` pages use standard Markdown with YAML frontmatter, so Obsidian's graph view, backlinks, and search all work natively.
 - **Pinning context** — in the Chat view, use the context panel on the right to pin specific wiki pages so they're always included in the LLM context window.
-- **Re-processing** — if you update a file in `raw/`, use "Retry" on that file or "Reset all" to reprocess everything.
+- **Reprocessing** — if you update a file in `raw/`, use the per-row "Reprocess" button (hover over the row) or the global "Reprocess all" button in the Library header.
 - **Wiki sync** — if you edit wiki pages directly in Obsidian, use the "Sync wiki" button to rebuild the FTS index from disk.
-- **Token budget** — processing uses ~2,000 output tokens per file and chat uses ~12,000 context chars per query. Adjust in Settings → Behavior if you hit rate limits.
+- **Model quality matters** — a stronger processing model produces better-structured wiki pages; a stronger chat model gives better answers. Processing is a one-time cost per file; chat costs per query.
 
 ---
 
@@ -215,6 +224,7 @@ PORT=5000          # Server port (default: 5000)
 - [ ] Export chat threads to `outputs/`
 - [ ] Electron wrapper — run as a proper desktop app without keeping a terminal open
 - [ ] OCR support for scanned PDFs
+- [ ] Streaming chat responses
 
 ---
 
@@ -227,7 +237,5 @@ MIT — see [LICENSE](LICENSE)
 ## Acknowledgements
 
 - [Andrej Karpathy](https://x.com/karpathy) — for the original LLM Knowledge Base pattern
-- [llm-wiki-compiler](https://github.com/atomicmemory/llm-wiki-compiler) — raw → wiki compilation concept
-- [Graphify](https://github.com/safishamsi/graphify) — knowledge graph inspiration
 - [shadcn/ui](https://ui.shadcn.com) — component primitives
 - [Drizzle ORM](https://orm.drizzle.team) — SQLite layer

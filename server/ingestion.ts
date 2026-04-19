@@ -315,14 +315,22 @@ const CHAT_SYSTEM = `You are a precise research assistant with access to a curat
 Answer questions using ONLY the wiki documents provided below.
 Be specific — include exact numbers, p-values, names, dates, and quotes from the source where relevant.
 Always cite which document(s) you drew from, by title.
-If the information is not present in the provided documents, say so clearly — do not speculate or invent.`;
+If the information is not present in the provided documents, say so clearly — do not speculate or invent.
+
+IMPORTANT: If the question requires real-time, live, or very recent data that is clearly not in the wiki
+(e.g. current stock prices, today's news, live exchange rates, recent events after the document dates),
+include this exact tag at the END of your answer, on its own line:
+[[WEB_SEARCH: <a concise search query that would answer the question>]]
+
+Only emit this tag when the KB genuinely cannot answer and real-time data would help.
+Do NOT emit it for general knowledge questions or things that don't need live data.`;
 
 export async function chatOverWiki(
   conversationId: number,
   userMessage: string,
   pinnedFiles: string[],
   vaultRoot: string
-): Promise<{ answer: string; contextFiles: string[] }> {
+): Promise<{ answer: string; contextFiles: string[]; webSearchQuery?: string }> {
   const settings = storage.getVaultSettings();
   if (!settings.chatConnectionId || !settings.chatModel) {
     throw new Error("No chat model configured. Please configure a connection and model in Settings.");
@@ -382,5 +390,74 @@ export async function chatOverWiki(
 
   const result = await callLLM(settings.chatConnectionId, settings.chatModel, messages, { temperature: 0.4, max_tokens: 2048 });
 
-  return { answer: result.content, contextFiles };
+  // Parse optional web-search suggestion emitted by the LLM
+  const raw = result.content as string;
+  const webSearchMatch = raw.match(/\[\[WEB_SEARCH:\s*(.+?)\]\]/i);
+  const webSearchQuery = webSearchMatch ? webSearchMatch[1].trim() : undefined;
+  // Strip the tag from the visible answer
+  const answer = raw.replace(/\n?\[\[WEB_SEARCH:[^\]]*\]\]/gi, "").trim();
+
+  return { answer, contextFiles, webSearchQuery };
+}
+
+// ─── Web Search ─────────────────────────────────────────────────────────────
+// Uses DuckDuckGo instant-answers API (no key needed) + optional synthesis.
+
+export async function performWebSearch(query: string): Promise<{ snippet: string; results: { title: string; url: string; snippet: string }[] }> {
+  // DuckDuckGo instant answer API — free, no key, JSON
+  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+  const resp = await fetch(url, { headers: { "User-Agent": "KBuild/1.0" } });
+  if (!resp.ok) throw new Error(`DuckDuckGo API error: ${resp.status}`);
+  const data = await resp.json() as any;
+
+  const results: { title: string; url: string; snippet: string }[] = [];
+
+  // Abstract (best single answer)
+  if (data.AbstractText) {
+    results.push({ title: data.Heading ?? query, url: data.AbstractURL ?? "", snippet: data.AbstractText });
+  }
+
+  // Related topics
+  for (const t of (data.RelatedTopics ?? []).slice(0, 5)) {
+    if (t.Text && t.FirstURL) {
+      results.push({ title: t.Text.slice(0, 80), url: t.FirstURL, snippet: t.Text });
+    }
+  }
+
+  // Infobox
+  for (const entry of (data.Infobox?.content ?? []).slice(0, 3)) {
+    if (entry.label && entry.value) {
+      results.push({ title: entry.label, url: "", snippet: `${entry.label}: ${entry.value}` });
+    }
+  }
+
+  const snippet = results.map(r => r.snippet).join(" | ").slice(0, 1000) || "No instant answer available.";
+  return { snippet, results: results.slice(0, 6) };
+}
+
+export async function synthesiseWebAnswer(
+  conversationId: number,
+  originalQuestion: string,
+  searchQuery: string,
+  webSnippet: string,
+): Promise<string> {
+  const settings = storage.getVaultSettings();
+  if (!settings.chatConnectionId || !settings.chatModel) throw new Error("No chat model configured.");
+
+  const messages = [
+    {
+      role: "system" as const,
+      content: `You are a helpful assistant. The user asked a question that required a web search.
+Using the web search results below, give a concise, accurate answer.
+Always note that this information comes from a live web search, not the knowledge base.
+Do not speculate beyond what the search results say.`,
+    },
+    {
+      role: "user" as const,
+      content: `Original question: ${originalQuestion}\n\nWeb search query used: "${searchQuery}"\n\nSearch results:\n${webSnippet}`,
+    },
+  ];
+
+  const result = await callLLM(settings.chatConnectionId, settings.chatModel, messages, { temperature: 0.3, max_tokens: 1024 });
+  return result.content as string;
 }
