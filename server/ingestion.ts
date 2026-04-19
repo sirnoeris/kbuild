@@ -418,17 +418,25 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
   // Key is resolved from the selected Connection (webSearchConnectionId),
   // not the generic webSearchApiKey field.
   if (provider === "xai") {
+    // Resolve the xAI API key: prefer a saved xAI Connection, fall back to the
+    // direct webSearchApiKey field (for users who haven't added a Connection yet).
+    let xaiKey = "";
     const connId = settings.webSearchConnectionId;
-    if (!connId) {
-      throw new Error("xAI web search: no connection selected. Choose an xAI connection in Settings → Web Search.");
+    if (connId) {
+      const conn = storage.getConnection(connId);
+      if (!conn) {
+        throw new Error(`xAI web search: connection #${connId} not found. Re-select it in Settings → Web Search.`);
+      }
+      if (conn.type !== "xai") {
+        throw new Error(`xAI web search: the selected connection "${conn.name}" is type "${conn.type}", not "xai". Please select an xAI-type connection, or paste your xAI key directly in Settings → Web Search.`);
+      }
+      xaiKey = conn.apiKey ?? "";
+    } else {
+      // Direct key fallback (stored in webSearchApiKey)
+      xaiKey = settings.webSearchApiKey ?? "";
     }
-    const conn = storage.getConnection(connId);
-    if (!conn) {
-      throw new Error(`xAI web search: connection #${connId} not found. Re-select it in Settings → Web Search.`);
-    }
-    const xaiKey = conn.apiKey;
     if (!xaiKey) {
-      throw new Error("xAI web search: the selected connection has no API key. Edit it in Settings → Connections.");
+      throw new Error("xAI web search: no API key found. Paste your xAI key in Settings → Web Search.");
     }
     const resp = await fetch("https://api.x.ai/v1/responses", {
       method: "POST",

@@ -700,8 +700,12 @@ function WebSearchTab() {
   const apiKey = vault.webSearchApiKey ?? "";
   const connId = vault.webSearchConnectionId;
 
-  // For the Test button: xAI needs a connection selected; others need an apiKey
-  const canTest = provider === "xai" ? !!connId : !!apiKey;
+  // Only show xAI-type connections in the xAI picker
+  const xaiConnections = connections.filter(c => c.type === "xai");
+  const hasXaiConnections = xaiConnections.length > 0;
+
+  // For the Test button: need either a selected xAI connection OR a direct key
+  const canTest = provider === "xai" ? (!!connId || !!apiKey) : !!apiKey;
 
   const handleTest = async () => {
     setTestStatus("testing");
@@ -824,28 +828,57 @@ function WebSearchTab() {
             <div className="p-4 space-y-3">
 
               {provider === "xai" ? (
-                /* ── xAI: pick from saved connections ── */
+                /* ── xAI: connection picker (xAI-type only) + direct key fallback ── */
                 <>
-                  <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
-                    Select the xAI connection you added in Settings → Connections. The API key is read from there automatically.
-                  </p>
-                  <select
-                    value={connId ?? ""}
-                    onChange={e => updateVault.mutate({ webSearchConnectionId: e.target.value ? parseInt(e.target.value) : undefined })}
-                    style={inputStyle}
-                  >
-                    <option value="">— Select a connection —</option>
-                    {connections.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                  {connId && connections.find(c => c.id === connId) && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: "var(--color-primary-highlight)" }}>
-                      <CheckCircle2 size={13} style={{ color: "var(--color-primary)" }} />
-                      <span style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)", fontFamily: "var(--font-mono)" }}>
-                        {connections.find(c => c.id === connId)?.name}
-                      </span>
-                    </div>
+                  {hasXaiConnections ? (
+                    /* Connection picker — only xAI-type connections */
+                    <>
+                      <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                        Select an xAI connection from Settings → Connections. Its API key is used automatically.
+                      </p>
+                      <select
+                        value={connId ?? ""}
+                        onChange={e => updateVault.mutate({ webSearchConnectionId: e.target.value ? parseInt(e.target.value) : undefined })}
+                        style={inputStyle}
+                      >
+                        <option value="">— Select a connection —</option>
+                        {xaiConnections.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      {connId && xaiConnections.find(c => c.id === connId) && (
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: "var(--color-primary-highlight)" }}>
+                          <CheckCircle2 size={13} style={{ color: "var(--color-primary)" }} />
+                          <span style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)", fontFamily: "var(--font-mono)" }}>
+                            {xaiConnections.find(c => c.id === connId)?.name}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* No xAI connection saved — accept direct key */
+                    <>
+                      <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                        Paste your xAI API key directly, or add an xAI connection in Settings → Connections first.
+                      </p>
+                      <div className="relative">
+                        <input
+                          type={showKey ? "text" : "password"}
+                          value={apiKey}
+                          onChange={e => updateVault.mutate({ webSearchApiKey: e.target.value })}
+                          placeholder="xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                          style={{ ...inputStyle, paddingRight: "2.5rem" }}
+                        />
+                        <button
+                          onClick={() => setShowKey(s => !s)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2"
+                          style={{ color: "var(--color-text-faint)" }}
+                          tabIndex={-1}
+                        >
+                          {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
+                    </>
                   )}
                 </>
               ) : (
