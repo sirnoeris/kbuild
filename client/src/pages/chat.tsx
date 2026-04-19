@@ -47,8 +47,6 @@ export default function Chat() {
   const [selectedConvId, setSelectedConvId] = useState<number | null>(params.id ? parseInt(params.id) : null);
   const [previewWiki, setPreviewWiki] = useState<WikiPage & { rawContent?: string } | null>(null);
   const [optimisticMessage, setOptimisticMessage] = useState<{ text: string; mode: "kb" | "chat" } | null>(null);
-  const [webSearchSuggestion, setWebSearchSuggestion] = useState<{ query: string; originalQuestion: string; convId: number } | null>(null);
-  const [webSearchPending, setWebSearchPending] = useState(false);
   const [chatMode, setChatMode] = useState<"kb" | "chat">("kb");
   // Per-conversation map of messageId -> mode (local only, not persisted).
   // Only messages produced in "chat" mode are tracked — KB is the default
@@ -79,7 +77,7 @@ export default function Chat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, optimisticMessage, webSearchSuggestion, webSearchPending]);
+  }, [messages, optimisticMessage]);
 
   useEffect(() => {
     if (params.id) {
@@ -127,16 +125,6 @@ export default function Chat() {
       // messages query refetches (see effect below).
       if (data.message?.id && variables.mode === "chat") {
         setMessageModes(prev => ({ ...prev, [data.message.id]: "chat" }));
-      }
-      // Only KB mode triggers the optional web-search suggestion
-      if (data.webSearchQuery && variables.mode === "kb") {
-        setWebSearchSuggestion({
-          query: data.webSearchQuery,
-          originalQuestion: variables.message,
-          convId: variables.convId,
-        });
-      } else {
-        setWebSearchSuggestion(null);
       }
       qc.invalidateQueries({ queryKey: ["/api/conversations", selectedConvId, "messages"] });
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
@@ -200,25 +188,6 @@ export default function Chat() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
-    }
-  };
-
-  const handleWebSearch = async (approved: boolean) => {
-    if (!webSearchSuggestion) return;
-    if (!approved) { setWebSearchSuggestion(null); return; }
-    setWebSearchPending(true);
-    setWebSearchSuggestion(null);
-    try {
-      await apiRequest("POST", "/api/web-search", {
-        query: webSearchSuggestion.query,
-        originalQuestion: webSearchSuggestion.originalQuestion,
-        conversationId: webSearchSuggestion.convId,
-      });
-      qc.invalidateQueries({ queryKey: ["/api/conversations", selectedConvId, "messages"] });
-    } catch (e: any) {
-      toast({ title: "Web search failed", description: e.message, variant: "destructive" });
-    } finally {
-      setWebSearchPending(false);
     }
   };
 
@@ -350,52 +319,6 @@ export default function Chat() {
                   </div>
                 </div>
               )}
-              {/* Web search approval card */}
-              {webSearchSuggestion && !webSearchPending && (
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--color-primary-highlight)" }}>
-                    <Bot size={14} style={{ color: "var(--color-primary)" }} />
-                  </div>
-                  <div className="msg-assistant px-4 py-3 max-w-[75%]" style={{ borderLeft: "3px solid var(--color-primary)" }}>
-                    <p style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)", marginBottom: "0.5rem" }}>
-                      The knowledge base doesn't have live data for this. Want me to search the web?
-                    </p>
-                    <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-faint)", marginBottom: "0.75rem", fontFamily: "var(--font-mono)" }}>
-                      "{webSearchSuggestion.query}"
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleWebSearch(true)}
-                        className="px-3 py-1.5 rounded text-xs font-medium"
-                        style={{ background: "var(--color-primary)", color: "#fff" }}
-                      >
-                        Search the web
-                      </button>
-                      <button
-                        onClick={() => handleWebSearch(false)}
-                        className="px-3 py-1.5 rounded text-xs font-medium"
-                        style={{ background: "var(--color-surface-offset)", color: "var(--color-text-muted)" }}
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Web search in progress */}
-              {webSearchPending && (
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--color-primary-highlight)" }}>
-                    <Bot size={14} style={{ color: "var(--color-primary)" }} />
-                  </div>
-                  <div className="msg-assistant px-4 py-3 flex items-center gap-2">
-                    <Loader2 size={13} className="animate-spin" style={{ color: "var(--color-primary)" }} />
-                    <span style={{ fontSize: "var(--text-sm)", color: "var(--color-text-muted)" }}>Searching the web…</span>
-                  </div>
-                </div>
-              )}
-
               <div ref={messagesEndRef} />
             </div>
 

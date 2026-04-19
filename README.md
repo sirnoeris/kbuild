@@ -12,7 +12,6 @@ Inspired by [Andrej Karpathy's LLM Knowledge Base pattern](https://x.com/karpath
 - **File ingestion** — processes PDF, DOCX, PPTX, XLSX, HTML, CSV, Markdown, and TXT into full-content wiki pages
 - **Full-text wiki** — every source becomes a complete Markdown wiki page; no summarisation, no data loss
 - **Chat over wiki** — FTS5 full-text search packs the most relevant wiki pages into context; no vector DB needed
-- **Web search** — when the KB doesn't have live data (e.g. current prices, recent news), the LLM suggests a web search and waits for your approval before executing
 - **Multiple LLM providers** — OpenRouter, xAI Grok, local Ollama, or any OpenAI-compatible endpoint
 - **Separate models** — choose one model for processing/ingestion and another for chat
 - **Per-file and global reprocess** — reprocess any file individually or reset everything and start fresh
@@ -32,7 +31,7 @@ kb-app/
 ├── server/          # Express backend (TypeScript)
 │   ├── extractor.ts    # File → plain text extraction
 │   ├── wiki-writer.ts  # Plain text → wiki Markdown
-│   ├── ingestion.ts    # Orchestration + SSE events + web search
+│   ├── ingestion.ts    # Orchestration + SSE events
 │   ├── llm-client.ts   # OpenAI-compatible LLM client
 │   ├── storage.ts      # SQLite via Drizzle ORM + FTS5
 │   └── routes.ts       # REST API routes
@@ -166,21 +165,6 @@ Then access it at [http://localhost:3131](http://localhost:3131) anytime.
 2. Pull a model: `ollama pull llama3.2` or `ollama pull mistral`
 3. Base URL: `http://localhost:11434/v1` — no API key needed
 4. Model name: use the Ollama model tag (e.g. `llama3.2`, `mistral`)
-
----
-
-## Web Search
-
-When you ask a question that requires live or recent data (e.g. current stock prices, today's news), the LLM will say so in its answer and propose a web search. An inline card appears:
-
-```
-The knowledge base doesn't have live data for this. Want me to search the web?
-"TSLA current stock price April 2026"
-[ Search the web ]  [ Dismiss ]
-```
-
-- **Approve** → KBuild queries DuckDuckGo (no API key needed), synthesises the results with your chat model, and posts the answer inline.
-- **Dismiss** → card disappears, no search is performed.
 
 ---
 

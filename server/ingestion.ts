@@ -318,21 +318,7 @@ export const DEFAULT_CHAT_SYSTEM_BASE = `You are a precise research assistant wi
 Answer questions using ONLY the wiki documents provided below.
 Be specific — include exact numbers, p-values, names, dates, and quotes from the source where relevant.
 Always cite which document(s) you drew from, by title.
-If the information is not present in the provided documents, say so clearly — do not speculate or invent.
-
-IMPORTANT — WEB SEARCH RULE:
-If the user asks for anything described as "current", "today", "now", "latest", "live", or "real-time"
-(e.g. current stock price, today's value, latest news, live exchange rate),
-YOU MUST emit the web search tag — even if the KB contains older data on the same topic.
-Do NOT answer with stale KB data as if it were current. Instead, provide what the KB shows,
-then always append the tag so live data can be fetched.
-
-Also emit the tag when the KB clearly lacks the answer entirely.
-
-Format — include this exact tag at the END of your answer, on its own line:
-[[WEB_SEARCH: <a concise, specific search query including ticker/name and today's date>]]
-
-Do NOT emit it for general knowledge questions that don't require live data.`;
+If the information is not present in the provided documents, say so clearly — do not speculate or invent.`;
 
 export const DEFAULT_CHAT_DIRECT_SYSTEM = `You are a helpful assistant. Answer the user's question directly and conversationally.`;
 
@@ -350,7 +336,7 @@ export async function chatOverWiki(
   userMessage: string,
   pinnedFiles: string[],
   vaultRoot: string
-): Promise<{ answer: string; contextFiles: string[]; webSearchQuery?: string }> {
+): Promise<{ answer: string; contextFiles: string[] }> {
   const settings = storage.getVaultSettings();
   if (!settings.chatConnectionId || !settings.chatModel) {
     throw new Error("No chat model configured. Please configure a connection and model in Settings.");
@@ -401,32 +387,17 @@ export async function chatOverWiki(
   const history = storage.getMessages(conversationId).slice(-8); // last 8 messages
   const historyMessages = history.map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-  // If a recent assistant turn already contains fetched live data, tell the
-  // LLM to prefer answering from it instead of emitting another web-search tag.
-  const hasRecentLiveData = history.some(
-    m => m.role === "assistant" && m.content.startsWith("[WEB SEARCH RESULT]")
-  );
-  const liveDataNote = hasRecentLiveData
-    ? "\n\n# Recently Fetched Live Data\nThe following live web search result was already fetched earlier in this conversation and is present in the chat history above (marked with [WEB SEARCH RESULT]). If the user's follow-up question can be answered using this data, answer it directly. Do NOT emit [[WEB_SEARCH:...]] — that would cause a redundant search. Only emit [[WEB_SEARCH:...]] if the user is asking about something genuinely different that requires NEW live data not already present in the history."
-    : "";
-
   // 7. Call LLM
   const messages = [
-    { role: "system" as const, content: buildChatSystem(settings.customSystemPrompt) + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") + liveDataNote },
+    { role: "system" as const, content: buildChatSystem(settings.customSystemPrompt) + "\n\n# Wiki Context\n\n" + (contextBlocks || "No wiki pages found yet. Process some files first.") },
     ...historyMessages,
     { role: "user" as const, content: userMessage },
   ];
 
   const result = await callLLM(settings.chatConnectionId, settings.chatModel, messages, { temperature: 0.4, max_tokens: 2048 });
+  const answer = (result.content as string).trim();
 
-  // Parse optional web-search suggestion emitted by the LLM
-  const raw = result.content as string;
-  const webSearchMatch = raw.match(/\[\[WEB_SEARCH:\s*(.+?)\]\]/i);
-  const webSearchQuery = webSearchMatch ? webSearchMatch[1].trim() : undefined;
-  // Strip the tag from the visible answer
-  const answer = raw.replace(/\n?\[\[WEB_SEARCH:[^\]]*\]\]/gi, "").trim();
-
-  return { answer, contextFiles, webSearchQuery };
+  return { answer, contextFiles };
 }
 
 // ─── Direct Chat (no KB retrieval) ──────────────────────────────────────────
@@ -456,195 +427,4 @@ export async function chatDirect(
 
   const result = await callLLM(settings.chatConnectionId, settings.chatModel, messages, { temperature: 0.7, max_tokens: 2048 });
   return { answer: (result.content as string).trim(), contextFiles: [] };
-}
-
-// ─── Web Search ─────────────────────────────────────────────────────────────
-// Supports: Brave Search, Serper.dev, xAI Live Search (Responses API)
-
-export async function performWebSearch(query: string): Promise<{ snippet: string; results: { title: string; url: string; snippet: string }[] }> {
-  const settings = storage.getVaultSettings();
-
-  if (!settings.webSearchEnabled) {
-    throw new Error("Web search is not enabled. Enable it in Settings → Web Search.");
-  }
-
-  const provider = settings.webSearchProvider ?? "brave";
-  const apiKey = settings.webSearchApiKey ?? "";
-
-  // ─── xAI Live Search ──────────────────────────────────────────────────
-  // Uses xAI Responses API — search + synthesis in a single call.
-  // Key is resolved from the selected Connection (webSearchConnectionId),
-  // not the generic webSearchApiKey field.
-  if (provider === "xai") {
-    // Resolve the xAI API key: prefer a saved xAI Connection, fall back to the
-    // direct webSearchApiKey field (for users who haven't added a Connection yet).
-    let xaiKey = "";
-    const connId = settings.webSearchConnectionId;
-    if (connId) {
-      const conn = storage.getConnection(connId);
-      if (!conn) {
-        throw new Error(`xAI web search: connection #${connId} not found. Re-select it in Settings → Web Search.`);
-      }
-      if (conn.type !== "xai") {
-        throw new Error(`xAI web search: the selected connection "${conn.name}" is type "${conn.type}", not "xai". Please select an xAI-type connection, or paste your xAI key directly in Settings → Web Search.`);
-      }
-      xaiKey = conn.apiKey ?? "";
-    } else {
-      // Direct key fallback (stored in webSearchApiKey)
-      xaiKey = settings.webSearchApiKey ?? "";
-    }
-    if (!xaiKey) {
-      throw new Error("xAI web search: no API key found. Paste your xAI key in Settings → Web Search.");
-    }
-    const resp = await fetch("https://api.x.ai/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${xaiKey}`,
-      },
-      body: JSON.stringify({
-        model: "grok-4-fast",     // current Responses API model with web_search support
-        input: [{ role: "user", content: `Today is ${new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}. ${query}` }],
-        tools: [{ type: "web_search" }],
-      }),
-    });
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`xAI Responses API error ${resp.status}: ${errText.slice(0, 300)}`);
-    }
-    const data = await resp.json() as any;
-
-    // Extract answer text + inline citation annotations from output[]
-    // Response shape: data.output[] -> { type: "message", content: [ { type: "output_text", text, annotations: [ { type: "url_citation", url, title } ] } ] }
-    let answer = "";
-    const seenUrls = new Set<string>();
-    const results: { title: string; url: string; snippet: string }[] = [];
-
-    for (const item of (data.output ?? [])) {
-      for (const c of (item.content ?? [])) {
-        if (c.type === "output_text") {
-          answer += c.text ?? "";
-          // Pull citations from inline annotations
-          for (const ann of (c.annotations ?? [])) {
-            if (ann.type === "url_citation" && ann.url && !seenUrls.has(ann.url)) {
-              seenUrls.add(ann.url);
-              results.push({
-                title: ann.title && isNaN(Number(ann.title)) ? ann.title : ann.url,
-                url: ann.url,
-                snippet: ann.url, // annotations don't carry snippets; URL is the reference
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // Fallback: data.citations is a flat string[] of URLs (no title/snippet)
-    if (results.length === 0) {
-      for (const url of (data.citations ?? []).slice(0, 6)) {
-        if (typeof url === "string" && !seenUrls.has(url)) {
-          seenUrls.add(url);
-          results.push({ title: url, url, snippet: url });
-        }
-      }
-    }
-
-    return { snippet: answer.trim() || "No answer returned.", results: results.slice(0, 6) };
-  }
-
-  // Brave & Serper require a manual API key stored in webSearchApiKey
-  if (!apiKey) {
-    const providerName = provider === "serper" ? "Serper" : "Brave Search";
-    throw new Error(`Web search API key not set. Add your ${providerName} API key in Settings → Web Search.`);
-  }
-
-  if (provider === "serper") {
-    // Serper.dev — Google results, reliable for financial data
-    const resp = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ q: query, num: 6 }),
-    });
-    if (!resp.ok) throw new Error(`Serper API error: ${resp.status} ${await resp.text().then(t => t.slice(0, 200))}`);
-    const data = await resp.json() as any;
-
-    const results: { title: string; url: string; snippet: string }[] = [];
-
-    // Answer box (best direct answer)
-    if (data.answerBox?.answer) {
-      results.push({ title: data.answerBox.title ?? query, url: data.answerBox.link ?? "", snippet: data.answerBox.answer });
-    } else if (data.answerBox?.snippet) {
-      results.push({ title: data.answerBox.title ?? query, url: data.answerBox.link ?? "", snippet: data.answerBox.snippet });
-    }
-
-    // Knowledge graph
-    if (data.knowledgeGraph?.description) {
-      results.push({ title: data.knowledgeGraph.title ?? "", url: data.knowledgeGraph.website ?? "", snippet: data.knowledgeGraph.description });
-    }
-
-    // Organic results
-    for (const r of (data.organic ?? []).slice(0, 5)) {
-      if (r.title && r.snippet) results.push({ title: r.title, url: r.link ?? "", snippet: r.snippet });
-    }
-
-    const snippet = results.map(r => r.snippet).join(" \n").slice(0, 2000) || "No results found.";
-    return { snippet, results: results.slice(0, 6) };
-
-  } else {
-    // Brave Search API — default
-    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=6&result_filter=web`;
-    const resp = await fetch(url, {
-      headers: { "Accept": "application/json", "Accept-Encoding": "gzip", "X-Subscription-Token": apiKey },
-    });
-    if (!resp.ok) throw new Error(`Brave Search API error: ${resp.status} ${await resp.text().then(t => t.slice(0, 200))}`);
-    const data = await resp.json() as any;
-
-    const results: { title: string; url: string; snippet: string }[] = [];
-
-    for (const r of (data.web?.results ?? []).slice(0, 6)) {
-      if (r.title && r.description) results.push({ title: r.title, url: r.url ?? "", snippet: r.description });
-    }
-
-    // Infobox if available
-    if (data.infobox?.results?.[0]?.description) {
-      results.unshift({ title: data.infobox.results[0].title ?? query, url: data.infobox.results[0].url ?? "", snippet: data.infobox.results[0].description });
-    }
-
-    const snippet = results.map(r => r.snippet).join(" \n").slice(0, 2000) || "No results found.";
-    return { snippet, results: results.slice(0, 6) };
-  }
-}
-
-export async function synthesiseWebAnswer(
-  conversationId: number,
-  originalQuestion: string,
-  searchQuery: string,
-  webSnippet: string,
-): Promise<string> {
-  const settings = storage.getVaultSettings();
-
-  // xAI Responses API already returns a synthesised, grounded answer — skip re-synthesis.
-  // Re-passing the text through another LLM would add latency and risk distortion.
-  if ((settings.webSearchProvider ?? "brave") === "xai") {
-    return webSnippet;
-  }
-
-  if (!settings.chatConnectionId || !settings.chatModel) throw new Error("No chat model configured.");
-
-  const messages = [
-    {
-      role: "system" as const,
-      content: `You are a helpful assistant. The user asked a question that required a web search.
-Using the web search results below, give a concise, accurate answer.
-Always note that this information comes from a live web search, not the knowledge base.
-Do not speculate beyond what the search results say.`,
-    },
-    {
-      role: "user" as const,
-      content: `Original question: ${originalQuestion}\n\nWeb search query used: "${searchQuery}"\n\nSearch results:\n${webSnippet}`,
-    },
-  ];
-
-  const result = await callLLM(settings.chatConnectionId, settings.chatModel, messages, { temperature: 0.3, max_tokens: 1024 });
-  return result.content as string;
 }

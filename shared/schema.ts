@@ -16,11 +16,6 @@ export const vaultSettings = sqliteTable("vault_settings", {
   chatModel: text("chat_model"),
   lastScanAt: text("last_scan_at"),
   lastRunSummary: text("last_run_summary"), // JSON: { processedCount, errorCount, timestamp }
-  // Web search
-  webSearchEnabled: integer("web_search_enabled", { mode: "boolean" }).notNull().default(false),
-  webSearchProvider: text("web_search_provider").notNull().default("brave"), // brave | serper | xai
-  webSearchApiKey: text("web_search_api_key").notNull().default(""),          // used by brave & serper
-  webSearchConnectionId: integer("web_search_connection_id"),                 // used by xai (points to a Connection row)
   // Custom system prompt — overrides the built-in chat system prompt when set
   customSystemPrompt: text("custom_system_prompt"),
 });

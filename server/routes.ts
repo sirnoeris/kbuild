@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
 import { listModels } from "./llm-client.js";
-import { scanRawFolder, processPendingFiles, chatOverWiki, chatDirect, getIsProcessing, ingestionEvents, syncWikiToDb, performWebSearch, synthesiseWebAnswer, DEFAULT_CHAT_SYSTEM_BASE } from "./ingestion.js";
+import { scanRawFolder, processPendingFiles, chatOverWiki, chatDirect, getIsProcessing, ingestionEvents, syncWikiToDb, DEFAULT_CHAT_SYSTEM_BASE } from "./ingestion.js";
 import { insertConnectionSchema } from "../shared/schema.js";
 
 export function registerRoutes(httpServer: Server, app: Express) {
@@ -307,14 +307,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Messages ─────────────────────────────────────────────────────────────
   app.get("/api/conversations/:id/messages", (req, res) => {
-    // Strip internal [WEB SEARCH RESULT] marker used for history detection
-    // so it doesn't leak to the UI.
-    const msgs = storage.getMessages(parseInt(req.params.id)).map(m =>
-      m.role === "assistant" && m.content.startsWith("[WEB SEARCH RESULT]\n")
-        ? { ...m, content: m.content.slice("[WEB SEARCH RESULT]\n".length) }
-        : m
-    );
-    res.json(msgs);
+    res.json(storage.getMessages(parseInt(req.params.id)));
   });
 
   app.post("/api/conversations/:id/chat", async (req, res) => {
@@ -351,7 +344,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       }
 
       const pinnedFiles: string[] = JSON.parse(conv.pinnedFiles ?? "[]");
-      const { answer, contextFiles, webSearchQuery } = await chatOverWiki(conversationId, message, pinnedFiles, settings.vaultPath);
+      const { answer, contextFiles } = await chatOverWiki(conversationId, message, pinnedFiles, settings.vaultPath);
 
       const assistantMsg = storage.createMessage({
         conversationId,
@@ -360,7 +353,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         contextFiles: JSON.stringify(contextFiles),
       });
 
-      res.json({ message: assistantMsg, contextFiles, webSearchQuery, mode: "kb" });
+      res.json({ message: assistantMsg, contextFiles, mode: "kb" });
     } catch (err: any) {
       const errMsg = storage.createMessage({
         conversationId,
@@ -368,36 +361,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         content: `Error: ${err.message}`,
       });
       res.status(500).json({ message: errMsg, error: err.message });
-    }
-  });
-
-  // ─── Web Search ──────────────────────────────────────────────────────────
-  // POST /api/web-search — perform live web search and synthesise answer
-  app.post("/api/web-search", async (req: Request, res: Response) => {
-    const { query, originalQuestion, conversationId } = req.body;
-    if (!query) return res.status(400).json({ error: "query required" });
-    try {
-      const { snippet, results } = await performWebSearch(query);
-      const answer = await synthesiseWebAnswer(
-        conversationId ?? 0,
-        originalQuestion ?? query,
-        query,
-        snippet,
-      );
-      // Save as assistant message if conversation ID provided.
-      // Prefix with a marker so future turns can detect that live data was
-      // already fetched and avoid triggering a redundant web search.
-      if (conversationId) {
-        storage.createMessage({
-          conversationId,
-          role: "assistant",
-          content: `[WEB SEARCH RESULT]\n${answer}`,
-          contextFiles: JSON.stringify([]),
-        });
-      }
-      res.json({ answer, results });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
   });
 
