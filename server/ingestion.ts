@@ -445,7 +445,7 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
         "Authorization": `Bearer ${xaiKey}`,
       },
       body: JSON.stringify({
-        model: "grok-3-fast",     // fast + cheap; supports web_search tool
+        model: "grok-4-fast",     // current Responses API model with web_search support
         input: [{ role: "user", content: query }],
         tools: [{ type: "web_search" }],
       }),
@@ -456,27 +456,42 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
     }
     const data = await resp.json() as any;
 
-    // Extract answer text from output array
+    // Extract answer text + inline citation annotations from output[]
+    // Response shape: data.output[] -> { type: "message", content: [ { type: "output_text", text, annotations: [ { type: "url_citation", url, title } ] } ] }
     let answer = "";
+    const seenUrls = new Set<string>();
+    const results: { title: string; url: string; snippet: string }[] = [];
+
     for (const item of (data.output ?? [])) {
       for (const c of (item.content ?? [])) {
-        if (c.type === "output_text" || c.type === "text") {
+        if (c.type === "output_text") {
           answer += c.text ?? "";
+          // Pull citations from inline annotations
+          for (const ann of (c.annotations ?? [])) {
+            if (ann.type === "url_citation" && ann.url && !seenUrls.has(ann.url)) {
+              seenUrls.add(ann.url);
+              results.push({
+                title: ann.title && isNaN(Number(ann.title)) ? ann.title : ann.url,
+                url: ann.url,
+                snippet: ann.url, // annotations don't carry snippets; URL is the reference
+              });
+            }
+          }
         }
       }
     }
 
-    // Extract citations
-    const results: { title: string; url: string; snippet: string }[] = [];
-    for (const cite of (data.citations ?? []).slice(0, 6)) {
-      results.push({
-        title: cite.title ?? cite.url ?? "",
-        url: cite.url ?? "",
-        snippet: cite.snippet ?? cite.title ?? "",
-      });
+    // Fallback: data.citations is a flat string[] of URLs (no title/snippet)
+    if (results.length === 0) {
+      for (const url of (data.citations ?? []).slice(0, 6)) {
+        if (typeof url === "string" && !seenUrls.has(url)) {
+          seenUrls.add(url);
+          results.push({ title: url, url, snippet: url });
+        }
+      }
     }
 
-    return { snippet: answer.trim() || "No answer returned.", results };
+    return { snippet: answer.trim() || "No answer returned.", results: results.slice(0, 6) };
   }
 
   // Brave & Serper require a manual API key stored in webSearchApiKey
