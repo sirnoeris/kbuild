@@ -328,8 +328,18 @@ export async function chatOverWiki(
     throw new Error("No chat model configured. Please configure a connection and model in Settings.");
   }
 
-  // 1. FTS search
-  const searchResults = storage.searchWikiPages(userMessage, 6);
+  // 1. FTS search — include recent conversation history so follow-up questions
+  // (e.g. "can you calculate that?") still retrieve the right sources even when
+  // the current message alone doesn't contain enough keywords.
+  const recentHistory = storage.getMessages(conversationId).slice(-4); // last 4 messages
+  const recentUserText = recentHistory
+    .filter(m => m.role === "user")
+    .map(m => m.content)
+    .join(" ");
+  const searchQuery = recentUserText
+    ? `${userMessage} ${recentUserText}`.slice(0, 500) // cap to avoid over-broad queries
+    : userMessage;
+  const searchResults = storage.searchWikiPages(searchQuery, 6);
 
   // 2. Add pinned files
   const pinned = pinnedFiles
