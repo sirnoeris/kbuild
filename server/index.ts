@@ -48,8 +48,14 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
+      // Suppress noisy high-frequency polling routes (status + vault checks every 2s)
+      const isPollingRoute = path === "/api/status" || path === "/api/vault";
+      const isNotModified = res.statusCode === 304;
+      if (isPollingRoute && isNotModified) return;
+
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      // Only log response body for non-200 responses or mutations (POST/PATCH/DELETE)
+      if (capturedJsonResponse && (res.statusCode >= 400 || req.method !== "GET")) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
