@@ -268,25 +268,47 @@ export class Storage implements IStorage {
 
   searchWikiPages(query: string, limit = 10): schema.WikiPage[] {
     if (!query.trim()) return this.getWikiPages().slice(0, limit);
-    try {
-      const rows = sqlite.prepare(
-        `SELECT wp.* FROM wiki_pages wp
-         INNER JOIN wiki_fts ON wiki_fts.rowid = wp.id
-         WHERE wiki_fts MATCH ?
-         ORDER BY rank
-         LIMIT ?`
-      ).all(query + "*", limit) as schema.WikiPage[];
-      return rows;
-    } catch {
-      // Fallback: simple LIKE search
-      return db.select().from(schema.wikiPages)
-        .where(or(
-          like(schema.wikiPages.title, `%${query}%`),
-          like(schema.wikiPages.summary, `%${query}%`),
-          like(schema.wikiPages.body, `%${query}%`)
-        ))
-        .limit(limit).all();
+
+    // Sanitise query for FTS5: strip punctuation/special chars, split into
+    // individual keywords, prefix-match each one. This handles natural language
+    // questions like "What's in my wiki?" without breaking the FTS5 parser.
+    const keywords = query
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")   // strip punctuation incl apostrophes
+      .split(/\s+/)
+      .filter(w => w.length > 2)  // skip stop words / very short tokens
+      .slice(0, 8);               // cap at 8 keywords
+
+    // Try FTS5 with sanitised keywords
+    if (keywords.length > 0) {
+      const ftsQuery = keywords.map(k => `"${k}"*`).join(" OR ");
+      try {
+        const rows = sqlite.prepare(
+          `SELECT wp.* FROM wiki_pages wp
+           INNER JOIN wiki_fts ON wiki_fts.rowid = wp.id
+           WHERE wiki_fts MATCH ?
+           ORDER BY rank
+           LIMIT ?`
+        ).all(ftsQuery, limit) as schema.WikiPage[];
+        if (rows.length > 0) return rows;
+      } catch {
+        // fall through to LIKE
+      }
     }
+
+    // Fallback 1: LIKE search on title + summary (fast columns)
+    const likeResults = db.select().from(schema.wikiPages)
+      .where(or(
+        like(schema.wikiPages.title, `%${keywords.join("%") || query}%`),
+        like(schema.wikiPages.summary, `%${keywords[0] || query}%`)
+      ))
+      .limit(limit).all();
+    if (likeResults.length > 0) return likeResults;
+
+    // Fallback 2: return most-recently-updated pages so chat always has context
+    return db.select().from(schema.wikiPages)
+      .orderBy(desc(schema.wikiPages.lastUpdated))
+      .limit(limit).all();
   }
 
   clearWikiPages() {

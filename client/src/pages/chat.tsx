@@ -74,8 +74,16 @@ export default function Chat() {
   }, [messages]);
 
   useEffect(() => {
-    if (params.id) setSelectedConvId(parseInt(params.id));
-  }, [params.id]);
+    if (params.id) {
+      setSelectedConvId(parseInt(params.id));
+    } else if (!selectedConvId && conversations.length > 0) {
+      // Auto-select the most recent conversation when opening Chat with no ID
+      const latest = [...conversations].sort((a, b) =>
+        new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
+      )[0];
+      setSelectedConvId(latest.id);
+    }
+  }, [params.id, conversations]);
 
   const createConvMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/conversations", { title: "New conversation" }).then(r => r.json()),

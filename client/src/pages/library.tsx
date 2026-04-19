@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -210,11 +211,18 @@ export default function Library() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/files"] }),
   });
 
+  const [, navigate] = useLocation();
+
   const syncWikiMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/wiki/sync").then(r => r.json()),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/wiki"] });
-      toast({ title: "Wiki synced", description: `${data.synced} pages indexed — chat is ready.` });
+      toast({
+        title: "Wiki synced — chat is ready",
+        description: `${data.synced} pages indexed. Opening chat…`,
+      });
+      // Navigate to chat after a short delay so the toast is visible
+      setTimeout(() => navigate("/chat"), 1200);
     },
     onError: (e: any) => toast({ title: "Sync failed", description: e.message, variant: "destructive" }),
   });
