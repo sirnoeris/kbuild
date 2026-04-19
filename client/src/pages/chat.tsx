@@ -46,6 +46,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [selectedConvId, setSelectedConvId] = useState<number | null>(params.id ? parseInt(params.id) : null);
   const [previewWiki, setPreviewWiki] = useState<WikiPage & { rawContent?: string } | null>(null);
+  const [optimisticMessage, setOptimisticMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -71,7 +72,7 @@ export default function Chat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, optimisticMessage]);
 
   useEffect(() => {
     if (params.id) {
@@ -107,10 +108,14 @@ export default function Chat() {
     mutationFn: ({ convId, message }: { convId: number; message: string }) =>
       apiRequest("POST", `/api/conversations/${convId}/chat`, { message }).then(r => r.json()),
     onSuccess: () => {
+      setOptimisticMessage(null);
       qc.invalidateQueries({ queryKey: ["/api/conversations", selectedConvId, "messages"] });
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
     },
-    onError: (e: any) => toast({ title: "Chat error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      setOptimisticMessage(null);
+      toast({ title: "Chat error", description: e.message, variant: "destructive" });
+    },
   });
 
   const pinMutation = useMutation({
@@ -131,6 +136,7 @@ export default function Chat() {
     }
     const msg = input;
     setInput("");
+    setOptimisticMessage(msg);
     chatMutation.mutate({ convId: convId!, message: msg });
   };
 
@@ -231,6 +237,20 @@ export default function Chat() {
               ) : messages.map(msg => (
                 <ChatMessage key={msg.id} message={msg} onClickSource={openWikiPreview} />
               ))}
+
+              {/* Optimistic user message — shown immediately on send, before server confirms */}
+              {optimisticMessage && (
+                <div className="flex items-start gap-3 justify-end">
+                  <div className="msg-user px-4 py-3 max-w-[75%]">
+                    <p style={{ fontSize: "var(--text-sm)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                      {optimisticMessage}
+                    </p>
+                  </div>
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: "var(--color-surface-offset)" }}>
+                    <User size={14} style={{ color: "var(--color-text-muted)" }} />
+                  </div>
+                </div>
+              )}
 
               {chatMutation.isPending && (
                 <div className="flex items-start gap-3">
