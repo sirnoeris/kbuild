@@ -4,11 +4,17 @@
  */
 import fs from "fs";
 import path from "path";
-// CJS interop: import as default — works in both ESM (tsx) and esbuild CJS bundle
-import pdfParse from "pdf-parse";
+// Import from internal lib path to avoid pdf-parse's debug-mode file read
+// (the index.js tries to open ./test/data/05-versions-space.pdf at load time
+//  when module.parent is undefined, which crashes under ESM)
+import { createRequire } from "module";
+const _require = createRequire(import.meta.url);
+const pdfParse: (buf: Buffer) => Promise<{ text: string; numpages: number }> = _require("pdf-parse/lib/pdf-parse.js");
 import mammoth from "mammoth";
 import AdmZip from "adm-zip";
-import * as XLSX from "xlsx";
+import XLSXDefault, * as XLSXNamed from "xlsx";
+// xlsx ESM exports: readFile lives on default, utils lives on both
+const XLSX = { ...XLSXNamed, ...XLSXDefault };
 
 export interface Document {
   path: string;

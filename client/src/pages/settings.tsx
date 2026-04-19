@@ -255,7 +255,7 @@ function ConnectionForm({ editingId, initial, onClose, onSaved }: {
       </h3>
 
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Name" placeholder="OpenRouter main">
+        <FormField label="Name">
           <input data-testid="input-conn-name" type="text" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
             placeholder="OpenRouter main" className="settings-input" style={inputStyle} />
         </FormField>
@@ -533,7 +533,7 @@ function BehaviorTab() {
         <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>Control how KBuild scans and processes files</p>
       </div>
 
-      <div className="rounded-xl divide-y" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", divideColor: "var(--color-border)" }}>
+      <div className="rounded-xl divide-y" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
         <BehaviorRow
           label="Auto-detect changes"
           desc="Automatically scan raw/ for new and changed files"

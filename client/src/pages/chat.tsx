@@ -131,7 +131,7 @@ export default function Chat() {
     }
     const msg = input;
     setInput("");
-    chatMutation.mutate({ convId, message: msg });
+    chatMutation.mutate({ convId: convId!, message: msg });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
