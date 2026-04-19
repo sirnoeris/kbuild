@@ -280,9 +280,12 @@ export class Storage implements IStorage {
       .filter(w => w.length > 2)  // skip stop words / very short tokens
       .slice(0, 8);               // cap at 8 keywords
 
-    // Try FTS5 with sanitised keywords
+    // Try FTS5 with sanitised keywords — three tiers, most precise first
     if (keywords.length > 0) {
-      const ftsQuery = keywords.map(k => `"${k}"*`).join(" OR ");
+      const prefixed = keywords.map(k => `"${k}"*`);
+
+      // Tier 1: AND — all keywords must appear (most precise)
+      const andQuery = prefixed.join(" ");
       try {
         const rows = sqlite.prepare(
           `SELECT wp.* FROM wiki_pages wp
@@ -290,11 +293,43 @@ export class Storage implements IStorage {
            WHERE wiki_fts MATCH ?
            ORDER BY rank
            LIMIT ?`
-        ).all(ftsQuery, limit) as schema.WikiPage[];
+        ).all(andQuery, limit) as schema.WikiPage[];
         if (rows.length > 0) return rows;
-      } catch {
-        // fall through to LIKE
+      } catch { /* fall through */ }
+
+      // Tier 2: majority AND — at least ceil(60%) of keywords must match
+      if (keywords.length >= 3) {
+        const majority = Math.ceil(keywords.length * 0.6);
+        // Use NEAR or manual OR with bm25 — SQLite FTS5 doesn't support
+        // threshold natively, so try progressively smaller AND subsets
+        for (let take = keywords.length - 1; take >= majority; take--) {
+          // Try all combinations of `take` keywords (first `take` is cheapest)
+          const subQuery = prefixed.slice(0, take).join(" ");
+          try {
+            const rows = sqlite.prepare(
+              `SELECT wp.* FROM wiki_pages wp
+               INNER JOIN wiki_fts ON wiki_fts.rowid = wp.id
+               WHERE wiki_fts MATCH ?
+               ORDER BY rank
+               LIMIT ?`
+            ).all(subQuery, limit) as schema.WikiPage[];
+            if (rows.length > 0) return rows;
+          } catch { /* fall through */ }
+        }
       }
+
+      // Tier 3: OR fallback — limited to 4 so noise stays manageable
+      const orQuery = prefixed.join(" OR ");
+      try {
+        const rows = sqlite.prepare(
+          `SELECT wp.* FROM wiki_pages wp
+           INNER JOIN wiki_fts ON wiki_fts.rowid = wp.id
+           WHERE wiki_fts MATCH ?
+           ORDER BY rank
+           LIMIT ?`
+        ).all(orQuery, Math.min(limit, 4)) as schema.WikiPage[];
+        if (rows.length > 0) return rows;
+      } catch { /* fall through */ }
     }
 
     // Fallback 1: LIKE search on title + summary (fast columns)

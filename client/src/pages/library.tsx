@@ -140,6 +140,7 @@ export default function Library() {
   const { toast } = useToast();
   const [filter, setFilter] = useState<FilterType>("all");
   const [showErrorDetail, setShowErrorDetail] = useState<number | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const { data: vault, isLoading: vaultLoading } = useQuery<VaultSettings>({
@@ -404,12 +405,13 @@ export default function Library() {
                   <tr
                     key={file.id}
                     data-testid={`row-file-${file.id}`}
-                    className="group"
                     style={{
                       borderBottom: "1px solid var(--color-border)",
                       background: showErrorDetail === file.id ? "var(--color-surface-offset)" : "transparent",
                       cursor: file.status === "error" ? "pointer" : "default",
                     }}
+                    onMouseEnter={() => setHoveredRow(file.id)}
+                    onMouseLeave={() => setHoveredRow(null)}
                     onClick={() => file.status === "error" && setShowErrorDetail(showErrorDetail === file.id ? null : file.id)}
                   >
                     <td className="px-4 py-3">
@@ -444,7 +446,7 @@ export default function Library() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 justify-end">
+                      <div className="flex items-center gap-1.5 justify-end" style={{ opacity: hoveredRow === file.id ? 1 : 0, transition: "opacity 150ms" }}>
                         {file.status === "error" && (
                           <button
                             data-testid={`button-retry-${file.id}`}

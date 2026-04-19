@@ -329,7 +329,7 @@ export async function chatOverWiki(
   }
 
   // 1. FTS search
-  const searchResults = storage.searchWikiPages(userMessage, 12);
+  const searchResults = storage.searchWikiPages(userMessage, 6);
 
   // 2. Add pinned files
   const pinned = pinnedFiles
