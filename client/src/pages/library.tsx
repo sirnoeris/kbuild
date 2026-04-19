@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   FolderOpen, Play, RefreshCw, RotateCcw, AlertCircle,
   CheckCircle2, Clock, Loader2, FileText, FileSpreadsheet,
-  FileCode, Globe, Presentation, ChevronDown, X, Database
+  FileCode, Globe, Presentation, ChevronDown, X, Database, BookOpen
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
@@ -210,6 +210,15 @@ export default function Library() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/files"] }),
   });
 
+  const syncWikiMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/wiki/sync").then(r => r.json()),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/wiki"] });
+      toast({ title: "Wiki synced", description: `${data.synced} pages indexed — chat is ready.` });
+    },
+    onError: (e: any) => toast({ title: "Sync failed", description: e.message, variant: "destructive" }),
+  });
+
   if (vaultLoading) return <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin" style={{ color: "var(--color-text-faint)" }} /></div>;
   if (!vault?.vaultPath) return <VaultChooser onChosen={() => qc.invalidateQueries({ queryKey: ["/api/vault"] })} />;
 
@@ -270,6 +279,17 @@ export default function Library() {
             {isProcessing
               ? <><Loader2 size={13} className="animate-spin mr-1.5" />Processing...</>
               : <><Play size={13} className="mr-1.5" />Process raw/</>}
+          </Button>
+          <Button
+            data-testid="button-sync-wiki"
+            variant="outline"
+            size="sm"
+            onClick={() => syncWikiMutation.mutate()}
+            disabled={syncWikiMutation.isPending || isProcessing}
+            title="Rebuild the chat search index from processed wiki files"
+          >
+            {syncWikiMutation.isPending ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <BookOpen size={13} className="mr-1.5" />}
+            Sync wiki
           </Button>
         </div>
       </div>

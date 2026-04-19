@@ -202,6 +202,9 @@ export async function processPendingFiles(vaultRoot: string): Promise<{ processe
   // Regenerate index files
   regenerateIndexFiles(vaultRoot);
 
+  // Auto-sync wiki pages into FTS index so chat works immediately
+  syncWikiToDb(vaultRoot);
+
   // Save run summary
   storage.updateVaultSettings({
     lastRunSummary: JSON.stringify({ processedCount: processed, errorCount: errors, timestamp: new Date().toISOString() })
@@ -210,6 +213,55 @@ export async function processPendingFiles(vaultRoot: string): Promise<{ processe
   emitProgress("processing_complete", { processed, errors });
   isProcessing = false;
   return { processed, errors };
+}
+
+/**
+ * Walk the wiki/ directory on disk and upsert every .md file into the
+ * SQLite wiki_pages table + FTS index. Called automatically after processing
+ * and exposed for manual "Sync wiki" triggers.
+ */
+export function syncWikiToDb(vaultRoot: string): number {
+  const wikiDir = path.join(vaultRoot, "wiki");
+  if (!fs.existsSync(wikiDir)) return 0;
+
+  let synced = 0;
+  function walk(dir: string) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(fullPath); continue; }
+      if (!entry.name.endsWith(".md")) continue;
+
+      const relPath = path.relative(vaultRoot, fullPath);
+      const content = fs.readFileSync(fullPath, "utf-8");
+
+      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      let title = entry.name.replace(".md", "");
+      let type: "source" | "topic" = "source";
+      let tags = "[]";
+      let sourceFile: string | undefined;
+
+      if (fmMatch) {
+        const fm = fmMatch[1];
+        const titleMatch = fm.match(/^title:\s*"?(.+?)"?\s*$/m);
+        if (titleMatch) title = titleMatch[1];
+        if (/^type:\s*"?topic"?/m.test(fm)) type = "topic";
+        const sfMatch = fm.match(/^source:\s*"?(.+?)"?\s*$/m);
+        if (sfMatch) sourceFile = sfMatch[1];
+      }
+
+      const body = fmMatch ? content.slice(fmMatch[0].length).trim() : content;
+      const summary = body.split("\n\n")[0]?.slice(0, 300) ?? "";
+
+      storage.upsertWikiPage({
+        path: relPath, title, type, tags, summary, body,
+        sourceFile, lastUpdated: new Date().toISOString()
+      });
+      synced++;
+    }
+  }
+  walk(wikiDir);
+  return synced;
 }
 
 export function getIsProcessing() { return isProcessing; }

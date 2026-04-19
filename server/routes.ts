@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
 import { listModels } from "./llm-client.js";
-import { scanRawFolder, processPendingFiles, chatOverWiki, getIsProcessing, ingestionEvents } from "./ingestion.js";
+import { scanRawFolder, processPendingFiles, chatOverWiki, getIsProcessing, ingestionEvents, syncWikiToDb } from "./ingestion.js";
 import { insertConnectionSchema } from "../shared/schema.js";
 
 export function registerRoutes(httpServer: Server, app: Express) {
@@ -216,50 +216,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/wiki/sync", (req, res) => {
     const settings = storage.getVaultSettings();
     if (!settings.vaultPath) return res.status(400).json({ error: "No vault path" });
-
     try {
       storage.clearWikiPages();
-      const wikiDir = path.join(settings.vaultPath, "wiki");
-      if (!fs.existsSync(wikiDir)) return res.json({ synced: 0 });
-
-      let synced = 0;
-      function walkWiki(dir: string) {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) { walkWiki(fullPath); continue; }
-          if (!entry.name.endsWith(".md")) continue;
-
-          const relPath = path.relative(settings.vaultPath!, fullPath);
-          const content = fs.readFileSync(fullPath, "utf-8");
-
-          // Parse frontmatter
-          const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-          let title = entry.name.replace(".md", "");
-          let type: "source" | "topic" = "source";
-          let tags = "[]";
-          let sourceFile: string | undefined;
-
-          if (fmMatch) {
-            const fm = fmMatch[1];
-            const titleMatch = fm.match(/^title:\s*"?(.+?)"?\s*$/m);
-            if (titleMatch) title = titleMatch[1];
-            if (/^type:\s*"?topic"?/m.test(fm)) type = "topic";
-            const sfMatch = fm.match(/^source:\s*"?(.+?)"?\s*$/m);
-            if (sfMatch) sourceFile = sfMatch[1];
-          }
-
-          const body = fmMatch ? content.slice(fmMatch[0].length).trim() : content;
-          const summary = body.split("\n\n")[0]?.slice(0, 300) ?? "";
-
-          storage.upsertWikiPage({
-            path: relPath, title, type, tags, summary, body, sourceFile, lastUpdated: new Date().toISOString()
-          });
-          synced++;
-        }
-      }
-
-      walkWiki(wikiDir);
+      const synced = syncWikiToDb(settings.vaultPath);
       res.json({ synced });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
