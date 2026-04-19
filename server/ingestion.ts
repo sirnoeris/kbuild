@@ -401,38 +401,77 @@ export async function chatOverWiki(
 }
 
 // ─── Web Search ─────────────────────────────────────────────────────────────
-// Uses DuckDuckGo instant-answers API (no key needed) + optional synthesis.
+// Uses Brave Search API or Serper.dev (configured in Settings → Web Search).
 
 export async function performWebSearch(query: string): Promise<{ snippet: string; results: { title: string; url: string; snippet: string }[] }> {
-  // DuckDuckGo instant answer API — free, no key, JSON
-  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-  const resp = await fetch(url, { headers: { "User-Agent": "KBuild/1.0" } });
-  if (!resp.ok) throw new Error(`DuckDuckGo API error: ${resp.status}`);
-  const data = await resp.json() as any;
+  const settings = storage.getVaultSettings();
 
-  const results: { title: string; url: string; snippet: string }[] = [];
-
-  // Abstract (best single answer)
-  if (data.AbstractText) {
-    results.push({ title: data.Heading ?? query, url: data.AbstractURL ?? "", snippet: data.AbstractText });
+  if (!settings.webSearchEnabled) {
+    throw new Error("Web search is not enabled. Enable it in Settings → Web Search.");
   }
 
-  // Related topics
-  for (const t of (data.RelatedTopics ?? []).slice(0, 5)) {
-    if (t.Text && t.FirstURL) {
-      results.push({ title: t.Text.slice(0, 80), url: t.FirstURL, snippet: t.Text });
+  const provider = settings.webSearchProvider ?? "brave";
+  const apiKey = settings.webSearchApiKey ?? "";
+
+  if (!apiKey) {
+    throw new Error(`Web search API key not set. Add your ${provider === "brave" ? "Brave Search" : "Serper"} API key in Settings → Web Search.`);
+  }
+
+  if (provider === "serper") {
+    // Serper.dev — Google results, reliable for financial data
+    const resp = await fetch("https://google.serper.dev/search", {
+      method: "POST",
+      headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ q: query, num: 6 }),
+    });
+    if (!resp.ok) throw new Error(`Serper API error: ${resp.status} ${await resp.text().then(t => t.slice(0, 200))}`);
+    const data = await resp.json() as any;
+
+    const results: { title: string; url: string; snippet: string }[] = [];
+
+    // Answer box (best direct answer)
+    if (data.answerBox?.answer) {
+      results.push({ title: data.answerBox.title ?? query, url: data.answerBox.link ?? "", snippet: data.answerBox.answer });
+    } else if (data.answerBox?.snippet) {
+      results.push({ title: data.answerBox.title ?? query, url: data.answerBox.link ?? "", snippet: data.answerBox.snippet });
     }
-  }
 
-  // Infobox
-  for (const entry of (data.Infobox?.content ?? []).slice(0, 3)) {
-    if (entry.label && entry.value) {
-      results.push({ title: entry.label, url: "", snippet: `${entry.label}: ${entry.value}` });
+    // Knowledge graph
+    if (data.knowledgeGraph?.description) {
+      results.push({ title: data.knowledgeGraph.title ?? "", url: data.knowledgeGraph.website ?? "", snippet: data.knowledgeGraph.description });
     }
-  }
 
-  const snippet = results.map(r => r.snippet).join(" | ").slice(0, 1000) || "No instant answer available.";
-  return { snippet, results: results.slice(0, 6) };
+    // Organic results
+    for (const r of (data.organic ?? []).slice(0, 5)) {
+      if (r.title && r.snippet) results.push({ title: r.title, url: r.link ?? "", snippet: r.snippet });
+    }
+
+    const snippet = results.map(r => r.snippet).join(" \n").slice(0, 2000) || "No results found.";
+    return { snippet, results: results.slice(0, 6) };
+
+  } else {
+    // Brave Search API — default
+    const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=6&result_filter=web`;
+    const resp = await fetch(url, {
+      headers: { "Accept": "application/json", "Accept-Encoding": "gzip", "X-Subscription-Token": apiKey },
+    });
+    if (!resp.ok) throw new Error(`Brave Search API error: ${resp.status} ${await resp.text().then(t => t.slice(0, 200))}`);
+    const data = await resp.json() as any;
+
+    const results: { title: string; url: string; snippet: string }[] = [];
+
+    for (const r of (data.web?.results ?? []).slice(0, 6)) {
+      if (r.title && r.description) results.push({ title: r.title, url: r.url ?? "", snippet: r.description });
+    }
+
+    // Infobox if available
+    if (data.infobox?.results?.[0]?.description) {
+      results.unshift({ title: data.infobox.results[0].title ?? query, url: data.infobox.results[0].url ?? "", snippet: data.infobox.results[0].description });
+    }
+
+    const snippet = results.map(r => r.snippet).join(" \n").slice(0, 2000) || "No results found.";
+    return { snippet, results: results.slice(0, 6) };
+  }
 }
 
 export async function synthesiseWebAnswer(

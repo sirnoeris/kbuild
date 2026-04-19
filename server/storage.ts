@@ -98,6 +98,19 @@ sqlite.exec(`
   INSERT OR IGNORE INTO vault_settings (id) VALUES (1);
 `);
 
+// Incremental migrations — add new columns if they don't exist yet
+const existingCols = sqlite.prepare("PRAGMA table_info(vault_settings)").all() as { name: string }[];
+const colNames = new Set(existingCols.map(c => c.name));
+if (!colNames.has("web_search_enabled")) {
+  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 0");
+}
+if (!colNames.has("web_search_provider")) {
+  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_provider TEXT NOT NULL DEFAULT 'brave'");
+}
+if (!colNames.has("web_search_api_key")) {
+  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_api_key TEXT NOT NULL DEFAULT ''");
+}
+
 export interface IStorage {
   // Vault
   getVaultSettings(): schema.VaultSettings;

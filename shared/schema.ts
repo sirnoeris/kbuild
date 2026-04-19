@@ -16,6 +16,10 @@ export const vaultSettings = sqliteTable("vault_settings", {
   chatModel: text("chat_model"),
   lastScanAt: text("last_scan_at"),
   lastRunSummary: text("last_run_summary"), // JSON: { processedCount, errorCount, timestamp }
+  // Web search
+  webSearchEnabled: integer("web_search_enabled", { mode: "boolean" }).notNull().default(false),
+  webSearchProvider: text("web_search_provider").notNull().default("brave"), // brave | serper
+  webSearchApiKey: text("web_search_api_key").notNull().default(""),
 });
 
 export const insertVaultSettingsSchema = createInsertSchema(vaultSettings).omit({ id: true });

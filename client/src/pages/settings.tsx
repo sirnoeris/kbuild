@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Edit2, Trash2, Loader2, CheckCircle2, XCircle,
   RefreshCw, Eye, EyeOff, Zap, ChevronDown, AlertCircle,
-  Settings as SettingsIcon, Link2, Brain, FileType, Sliders
+  Settings as SettingsIcon, Link2, Brain, FileType, Sliders, Globe, Search, ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,9 @@ interface VaultSettings {
   maxRetries: number;
   enabledFormats: string;
   vaultPath: string;
+  webSearchEnabled: boolean;
+  webSearchProvider: string;
+  webSearchApiKey: string;
 }
 
 const FILE_FORMATS = [
@@ -55,13 +58,14 @@ const PRESET_URLS: Record<string, string> = {
   custom_local: "http://localhost:11434/v1",
 };
 
-type SettingsTab = "connections" | "models" | "formats" | "behavior";
+type SettingsTab = "connections" | "models" | "formats" | "behavior" | "websearch";
 
 const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: "connections", label: "Connections", icon: <Link2 size={14} /> },
   { id: "models", label: "Models", icon: <Brain size={14} /> },
   { id: "formats", label: "Formats", icon: <FileType size={14} /> },
   { id: "behavior", label: "Behavior", icon: <Sliders size={14} /> },
+  { id: "websearch", label: "Web Search", icon: <Globe size={14} /> },
 ];
 
 export default function Settings() {
@@ -103,6 +107,7 @@ export default function Settings() {
           {activeTab === "models" && <ModelsTab />}
           {activeTab === "formats" && <FormatsTab />}
           {activeTab === "behavior" && <BehaviorTab />}
+          {activeTab === "websearch" && <WebSearchTab />}
         </div>
       </div>
     </div>
@@ -663,3 +668,195 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   fontFamily: "var(--font-body)",
 };
+
+// ─── Web Search Tab ───────────────────────────────────────────────────────────────
+function WebSearchTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [showKey, setShowKey] = useState(false);
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [testError, setTestError] = useState("");
+
+  const { data: vault } = useQuery<VaultSettings>({
+    queryKey: ["/api/vault"],
+    queryFn: () => apiRequest("GET", "/api/vault").then(r => r.json()),
+  });
+
+  const updateVault = useMutation({
+    mutationFn: (data: Partial<VaultSettings>) => apiRequest("PATCH", "/api/vault", data).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/vault"] }),
+  });
+
+  if (!vault) return null;
+
+  const isEnabled = vault.webSearchEnabled ?? false;
+  const provider = vault.webSearchProvider ?? "brave";
+  const apiKey = vault.webSearchApiKey ?? "";
+
+  const handleTest = async () => {
+    setTestStatus("testing");
+    setTestError("");
+    try {
+      const resp = await apiRequest("POST", "/api/web-search", {
+        query: "current date",
+        originalQuestion: "test",
+        conversationId: 0,
+      });
+      if (resp.ok) {
+        setTestStatus("ok");
+      } else {
+        const d = await resp.json();
+        setTestError(d.error ?? "Unknown error");
+        setTestStatus("error");
+      }
+    } catch (e: any) {
+      setTestError(e.message);
+      setTestStatus("error");
+    }
+  };
+
+  const PROVIDERS = [
+    {
+      value: "brave",
+      label: "Brave Search",
+      desc: "Free tier: 2,000 queries/month. Real-time results including stock prices and news.",
+      signupUrl: "https://api.search.brave.com/register",
+      keyPlaceholder: "BSAxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    },
+    {
+      value: "serper",
+      label: "Serper (Google)",
+      desc: "Free tier: 2,500 queries. Google results with rich answer boxes — excellent for financial data.",
+      signupUrl: "https://serper.dev",
+      keyPlaceholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    },
+  ];
+
+  const selectedProvider = PROVIDERS.find(p => p.value === provider) ?? PROVIDERS[0];
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "0.95rem", color: "var(--color-text)" }}>Web Search</h2>
+        <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)", marginTop: "2px" }}>
+          When enabled, KBuild can search the web for live data (stock prices, recent news) when your knowledge base doesn't have the answer.
+          You'll be asked to approve each search before it runs.
+        </p>
+      </div>
+
+      {/* Enable toggle */}
+      <div className="rounded-xl" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+        <BehaviorRow
+          label="Enable web search"
+          desc="Allow KBuild to suggest and perform live web searches when the KB lacks real-time data"
+          checked={isEnabled}
+          onToggle={() => updateVault.mutate({ webSearchEnabled: !isEnabled })}
+          testId="toggle-web-search"
+        />
+      </div>
+
+      {/* Provider + key (shown only when enabled) */}
+      {isEnabled && (
+        <>
+          {/* Provider selector */}
+          <div className="rounded-xl overflow-hidden" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.85rem", color: "var(--color-text)" }}>Search provider</h3>
+            </div>
+            <div className="p-4 space-y-2">
+              {PROVIDERS.map(p => (
+                <label
+                  key={p.value}
+                  className="flex items-start gap-3 p-3 rounded-lg cursor-pointer"
+                  style={{
+                    background: provider === p.value ? "var(--color-primary-highlight)" : "var(--color-surface-offset)",
+                    border: `1px solid ${provider === p.value ? "var(--color-primary)" : "var(--color-border)"}`,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="provider"
+                    value={p.value}
+                    checked={provider === p.value}
+                    onChange={() => updateVault.mutate({ webSearchProvider: p.value })}
+                    style={{ marginTop: "2px", accentColor: "var(--color-primary)" }}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--color-text)" }}>{p.label}</span>
+                      <a
+                        href={p.signupUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="flex items-center gap-1"
+                        style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)" }}
+                      >
+                        Get free API key <ExternalLink size={10} />
+                      </a>
+                    </div>
+                    <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)", marginTop: "2px" }}>{p.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* API key */}
+          <div className="rounded-xl overflow-hidden" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.85rem", color: "var(--color-text)" }}>API key</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="relative">
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={e => updateVault.mutate({ webSearchApiKey: e.target.value })}
+                  placeholder={selectedProvider.keyPlaceholder}
+                  style={{ ...inputStyle, paddingRight: "2.5rem" }}
+                />
+                <button
+                  onClick={() => setShowKey(s => !s)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2"
+                  style={{ color: "var(--color-text-faint)" }}
+                  tabIndex={-1}
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+
+              {/* Test button */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleTest}
+                  disabled={!apiKey || testStatus === "testing"}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
+                  style={{
+                    background: "var(--color-surface-offset)",
+                    color: "var(--color-text-muted)",
+                    opacity: !apiKey ? 0.5 : 1,
+                    cursor: !apiKey ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {testStatus === "testing" ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                  Test connection
+                </button>
+                {testStatus === "ok" && (
+                  <span className="flex items-center gap-1" style={{ fontSize: "var(--text-xs)", color: "var(--color-success)" }}>
+                    <CheckCircle2 size={12} /> Connected
+                  </span>
+                )}
+                {testStatus === "error" && (
+                  <span className="flex items-center gap-1" style={{ fontSize: "var(--text-xs)", color: "var(--color-error)" }}>
+                    <XCircle size={12} /> {testError.slice(0, 80)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
