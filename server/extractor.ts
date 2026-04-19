@@ -1,6 +1,6 @@
 /**
- * File extractors — convert raw files into a Document structure (text + structure).
- * Pure Node.js, no LLM.
+ * File extractors — convert raw files into plain text for wiki conversion.
+ * Uses proper parsing libraries for each format.
  */
 import fs from "fs";
 import path from "path";
@@ -10,12 +10,7 @@ export interface Document {
   kind: string;
   title: string;
   text: string;
-  structure: string; // brief structural summary (headings, slides, etc.)
   error?: string;
-}
-
-function slugify(str: string): string {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
 export function getFileKind(filePath: string): string {
@@ -46,103 +41,95 @@ export async function extractDocument(filePath: string, vaultRoot: string): Prom
   const absPath = path.isAbsolute(filePath) ? filePath : path.join(vaultRoot, filePath);
   const relPath = path.relative(vaultRoot, absPath);
   const title = extractTitle(filePath);
-  // relPath must be in scope for the catch block
 
   try {
     switch (kind) {
       case "md":
       case "txt": {
         const text = fs.readFileSync(absPath, "utf-8");
-        const headings = text.match(/^#+\s.+/gm) ?? [];
-        return {
-          path: relPath, kind, title,
-          text: text.slice(0, 80_000),
-          structure: headings.slice(0, 20).join("\n"),
-        };
+        return { path: relPath, kind, title, text };
       }
 
       case "html": {
         const raw = fs.readFileSync(absPath, "utf-8");
-        // Strip tags, keep text
         const text = raw
           .replace(/<script[\s\S]*?<\/script>/gi, "")
           .replace(/<style[\s\S]*?<\/style>/gi, "")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s{2,}/g, " ")
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/p>/gi, "\n\n")
+          .replace(/<\/h[1-6]>/gi, "\n")
+          .replace(/<h([1-6])[^>]*>/gi, (_, n) => "#".repeat(parseInt(n)) + " ")
+          .replace(/<[^>]+>/g, "")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/\s{3,}/g, "\n\n")
           .trim();
-        const headings = raw.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi) ?? [];
-        const cleanHeadings = headings.map(h => h.replace(/<[^>]+>/g, "")).slice(0, 20);
-        return {
-          path: relPath, kind, title,
-          text: text.slice(0, 80_000),
-          structure: cleanHeadings.join("\n"),
-        };
+        return { path: relPath, kind, title, text };
       }
 
       case "csv": {
         const text = fs.readFileSync(absPath, "utf-8");
-        const lines = text.split("\n").filter(Boolean);
-        const header = lines[0] ?? "";
-        const sample = lines.slice(0, 6).join("\n");
-        return {
-          path: relPath, kind, title,
-          text: `Columns: ${header}\n\nSample rows:\n${sample}\n\nTotal rows: ${lines.length - 1}`,
-          structure: `CSV with ${lines.length - 1} data rows and columns: ${header}`,
-        };
+        return { path: relPath, kind, title, text };
       }
 
-      // For binary formats (PDF, DOCX, PPTX, XLSX) we extract what we can via buffers
-      // and note that full text extraction requires optional native deps
       case "pdf": {
-        // Attempt basic PDF text extraction (look for readable text streams)
+        // Use pdf-parse for proper text extraction
+        const pdfParse = (await import("pdf-parse")).default;
         const buf = fs.readFileSync(absPath);
-        const str = buf.toString("latin1");
-        // Very basic PDF text extraction: find BT...ET blocks
-        const matches = str.match(/BT[\s\S]*?ET/g) ?? [];
-        const textParts: string[] = [];
-        for (const block of matches) {
-          const tj = block.match(/\(([^)]+)\)/g) ?? [];
-          const words = tj.map(t => t.slice(1, -1)).join(" ");
-          if (words.trim()) textParts.push(words);
+        const data = await pdfParse(buf);
+        const text = data.text?.trim() ?? "";
+        if (text.length < 50) {
+          return {
+            path: relPath, kind, title,
+            text: `[PDF: ${path.basename(filePath)} — text extraction returned minimal content. The PDF may be scanned/image-based. File size: ${Math.round(buf.length / 1024)}KB, Pages: ${data.numpages}]`,
+          };
         }
-        const extracted = textParts.join(" ").replace(/\s+/g, " ").trim();
-        const text = extracted.length > 100
-          ? extracted.slice(0, 80_000)
-          : `[PDF file: ${path.basename(filePath)} — ${Math.round(buf.length / 1024)}KB. Content extraction limited — LLM will summarize based on filename and metadata.]`;
-        return {
-          path: relPath, kind, title,
-          text,
-          structure: `PDF document: ${Math.round(buf.length / 1024)}KB`,
-        };
+        return { path: relPath, kind, title, text };
       }
 
-      case "docx":
-      case "pptx":
-      case "xlsx": {
+      case "docx": {
+        const mammoth = await import("mammoth");
         const buf = fs.readFileSync(absPath);
-        const size = Math.round(buf.length / 1024);
-        const kindLabel = { docx: "Word document", pptx: "PowerPoint presentation", xlsx: "Excel spreadsheet" }[kind] ?? kind;
-        return {
-          path: relPath, kind, title,
-          text: `[${kindLabel}: ${path.basename(filePath)} — ${size}KB. Binary format — LLM will create a summary based on filename and file type. For full extraction, convert to PDF or text first.]`,
-          structure: `${kindLabel}, ${size}KB`,
-        };
+        const result = await mammoth.extractRawText({ buffer: buf });
+        return { path: relPath, kind, title, text: result.value };
+      }
+
+      case "pptx": {
+        // PPTX is a zip — extract slide XML text
+        const AdmZip = (await import("adm-zip" as any)).default;
+        const zip = new AdmZip(absPath);
+        const slideEntries = zip.getEntries()
+          .filter((e: any) => e.entryName.match(/ppt\/slides\/slide\d+\.xml$/))
+          .sort((a: any, b: any) => a.entryName.localeCompare(b.entryName));
+        const parts: string[] = [];
+        for (const entry of slideEntries) {
+          const xml = entry.getData().toString("utf-8");
+          const texts = xml.match(/<a:t[^>]*>([^<]*)<\/a:t>/g) ?? [];
+          const slideText = texts.map((t: string) => t.replace(/<[^>]+>/g, "")).join(" ").trim();
+          if (slideText) parts.push(slideText);
+        }
+        return { path: relPath, kind, title, text: parts.join("\n\n") || `[PPTX: ${path.basename(filePath)}]` };
+      }
+
+      case "xlsx": {
+        const XLSX = await import("xlsx");
+        const wb = XLSX.readFile(absPath);
+        const parts: string[] = [];
+        for (const sheetName of wb.SheetNames) {
+          const ws = wb.Sheets[sheetName];
+          const csv = XLSX.utils.sheet_to_csv(ws);
+          if (csv.trim()) parts.push(`## Sheet: ${sheetName}\n\n${csv}`);
+        }
+        return { path: relPath, kind, title, text: parts.join("\n\n") || `[XLSX: ${path.basename(filePath)}]` };
       }
 
       default:
-        return {
-          path: relPath, kind, title,
-          text: "",
-          structure: "",
-          error: `Unsupported file type: ${path.extname(filePath)}`,
-        };
+        return { path: relPath, kind, title, text: "", error: `Unsupported file type: ${path.extname(filePath)}` };
     }
   } catch (err: any) {
-    return {
-      path: relPath, kind, title,
-      text: "",
-      structure: "",
-      error: `Extraction failed: ${err.message}`,
-    };
+    return { path: relPath, kind, title, text: "", error: `Extraction failed: ${err.message}` };
   }
 }
