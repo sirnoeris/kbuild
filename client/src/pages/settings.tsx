@@ -722,6 +722,7 @@ function WebSearchTab() {
       desc: "Free tier: 2,000 queries/month. Real-time results including stock prices and news.",
       signupUrl: "https://api.search.brave.com/register",
       keyPlaceholder: "BSAxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      keyNote: null,
     },
     {
       value: "serper",
@@ -729,6 +730,15 @@ function WebSearchTab() {
       desc: "Free tier: 2,500 queries. Google results with rich answer boxes — excellent for financial data.",
       signupUrl: "https://serper.dev",
       keyPlaceholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      keyNote: null,
+    },
+    {
+      value: "xai",
+      label: "xAI Live Search",
+      desc: "Uses Grok's native web_search tool — search + synthesis in a single API call. No separate search key needed. Reuse your xAI API key from Connections.",
+      signupUrl: "https://console.x.ai",
+      keyPlaceholder: "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      keyNote: "Use the same xAI API key you added in Settings \u2192 Connections.",
     },
   ];
 
@@ -808,6 +818,12 @@ function WebSearchTab() {
               <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.85rem", color: "var(--color-text)" }}>API key</h3>
             </div>
             <div className="p-4 space-y-3">
+              {selectedProvider.keyNote && (
+                <div className="flex items-start gap-2 p-2.5 rounded-lg" style={{ background: "var(--color-primary-highlight)", border: "1px solid var(--color-primary)" }}>
+                  <AlertCircle size={13} style={{ color: "var(--color-primary)", marginTop: "1px", flexShrink: 0 }} />
+                  <p style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)" }}>{selectedProvider.keyNote}</p>
+                </div>
+              )}
               <div className="relative">
                 <input
                   type={showKey ? "text" : "password"}

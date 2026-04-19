@@ -401,7 +401,7 @@ export async function chatOverWiki(
 }
 
 // ─── Web Search ─────────────────────────────────────────────────────────────
-// Uses Brave Search API or Serper.dev (configured in Settings → Web Search).
+// Supports: Brave Search, Serper.dev, xAI Live Search (Responses API)
 
 export async function performWebSearch(query: string): Promise<{ snippet: string; results: { title: string; url: string; snippet: string }[] }> {
   const settings = storage.getVaultSettings();
@@ -414,7 +414,53 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
   const apiKey = settings.webSearchApiKey ?? "";
 
   if (!apiKey) {
-    throw new Error(`Web search API key not set. Add your ${provider === "brave" ? "Brave Search" : "Serper"} API key in Settings → Web Search.`);
+    const providerName = provider === "brave" ? "Brave Search" : provider === "serper" ? "Serper" : "xAI";
+    throw new Error(`Web search API key not set. Add your ${providerName} API key in Settings → Web Search.`);
+  }
+
+  // ─── xAI Live Search ──────────────────────────────────────────────────
+  // Uses xAI Responses API — search + synthesis in a single call.
+  // The model performs the web search natively; no separate search engine needed.
+  if (provider === "xai") {
+    const resp = await fetch("https://api.x.ai/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "grok-3-fast",     // fast + cheap; supports web_search tool
+        input: [{ role: "user", content: query }],
+        tools: [{ type: "web_search" }],
+      }),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`xAI Responses API error ${resp.status}: ${errText.slice(0, 300)}`);
+    }
+    const data = await resp.json() as any;
+
+    // Extract answer text from output array
+    let answer = "";
+    for (const item of (data.output ?? [])) {
+      for (const c of (item.content ?? [])) {
+        if (c.type === "output_text" || c.type === "text") {
+          answer += c.text ?? "";
+        }
+      }
+    }
+
+    // Extract citations
+    const results: { title: string; url: string; snippet: string }[] = [];
+    for (const cite of (data.citations ?? []).slice(0, 6)) {
+      results.push({
+        title: cite.title ?? cite.url ?? "",
+        url: cite.url ?? "",
+        snippet: cite.snippet ?? cite.title ?? "",
+      });
+    }
+
+    return { snippet: answer.trim() || "No answer returned.", results };
   }
 
   if (provider === "serper") {
@@ -481,6 +527,13 @@ export async function synthesiseWebAnswer(
   webSnippet: string,
 ): Promise<string> {
   const settings = storage.getVaultSettings();
+
+  // xAI Responses API already returns a synthesised, grounded answer — skip re-synthesis.
+  // Re-passing the text through another LLM would add latency and risk distortion.
+  if ((settings.webSearchProvider ?? "brave") === "xai") {
+    return webSnippet;
+  }
+
   if (!settings.chatConnectionId || !settings.chatModel) throw new Error("No chat model configured.");
 
   const messages = [
