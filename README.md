@@ -234,6 +234,31 @@ Automated Windows builds are produced by the `.github/workflows/electron-build.y
 
 ---
 
+## Desktop App (macOS)
+
+KBuild can also be packaged as a native macOS `.dmg` — no terminal required after installation.
+
+### For end users
+
+1. Download the latest `KBuild-<version>.dmg` from the [GitHub Releases page](https://github.com/sirnoeris/kbuild/releases).
+2. Open the `.dmg`, drag KBuild to your Applications folder.
+3. Launch KBuild from Spotlight or Applications. It starts the local server in the background and opens the UI in its own window. All data is stored in `~/Library/Application Support/KBuild`.
+
+> **Gatekeeper note:** On first launch, macOS may warn that the app is from an unidentified developer. Right-click the app → Open → Open to bypass this once.
+
+### For developers
+
+```bash
+# Smoke-test Electron against your local build
+npm run build
+npm run electron:dev
+
+# Build a distributable .dmg (on macOS)
+npm run electron:build:mac
+```
+
+---
+
 ## Roadmap
 
 - [ ] File watcher — auto-detect new files dropped into `raw/` without manual scan
