@@ -10,6 +10,9 @@ export interface SummaryResult {
   title: string;
   summary: string;
   keyPoints: string[];
+  methodology: string | null;
+  limitations: string | null;
+  keyResults: string | null;
   concepts: string[];
   relatedTopics: string[];
 }
@@ -28,6 +31,9 @@ export function parseSummaryFromLLM(raw: string, fallbackTitle: string): Summary
         title: parsed.title ?? fallbackTitle,
         summary: parsed.summary ?? "",
         keyPoints: Array.isArray(parsed.key_points) ? parsed.key_points : (parsed.keyPoints ?? []),
+        methodology: (typeof parsed.methodology === "string" && parsed.methodology !== "null") ? parsed.methodology : null,
+        limitations: (typeof parsed.limitations === "string" && parsed.limitations !== "null") ? parsed.limitations : null,
+        keyResults: (typeof parsed.key_results === "string" && parsed.key_results !== "null") ? parsed.key_results : null,
         concepts: Array.isArray(parsed.concepts) ? parsed.concepts : [],
         relatedTopics: Array.isArray(parsed.related_topics) ? parsed.related_topics : (parsed.relatedTopics ?? []),
       };
@@ -57,7 +63,7 @@ export function parseSummaryFromLLM(raw: string, fallbackTitle: string): Summary
     else if (!summary && !section) summary = l;
   }
 
-  return { title: fallbackTitle, summary: summary || raw.slice(0, 300), keyPoints, concepts, relatedTopics };
+  return { title: fallbackTitle, summary: summary || raw.slice(0, 300), keyPoints, methodology: null, limitations: null, keyResults: null, concepts, relatedTopics };
 }
 
 export function writeSourceWikiPage(
@@ -84,6 +90,16 @@ export function writeSourceWikiPage(
     .map(c => `- \`${c}\``)
     .join("\n");
 
+  const methodologySection = result.methodology
+    ? `\n## Methodology\n\n${result.methodology}\n`
+    : "";
+  const limitationsSection = result.limitations
+    ? `\n## Limitations\n\n${result.limitations}\n`
+    : "";
+  const keyResultsSection = result.keyResults
+    ? `\n## Key Results\n\n${result.keyResults}\n`
+    : "";
+
   const content = `---
 title: "${result.title.replace(/"/g, '\\"')}"
 source: "${filePath}"
@@ -97,7 +113,7 @@ ${result.summary}
 ## Key Points
 
 ${keyPointsList || "- No key points extracted."}
-
+${keyResultsSection}${methodologySection}${limitationsSection}
 ## Key Concepts
 
 ${conceptsList || "- No concepts extracted."}

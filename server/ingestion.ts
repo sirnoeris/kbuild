@@ -88,16 +88,32 @@ export async function scanRawFolder(vaultRoot: string): Promise<{ newCount: numb
   return { newCount, changedCount, total };
 }
 
-const SUMMARIZE_PROMPT = `You are a knowledge base compiler. Given the content of a document, produce a structured summary in JSON.
+const SUMMARIZE_PROMPT = `You are an expert knowledge base compiler. Your job is to read documents and produce DENSE, ACCURATE wiki pages — not vague summaries.
 
-Return ONLY valid JSON (no markdown fences) with these keys:
+Return ONLY valid JSON (no markdown fences) with EXACTLY these keys:
 {
-  "title": "Human-readable title",
-  "summary": "One-paragraph summary (2-4 sentences)",
-  "key_points": ["point 1", "point 2", ...], // 3-8 bullet points
-  "concepts": ["concept1", "concept2", ...], // 3-10 key concepts/topics (short sluggable strings)
-  "related_topics": ["topic1", "topic2", ...] // 2-5 related topic names
-}`;
+  "title": "Human-readable title (keep original title if available)",
+  "summary": "Comprehensive 3-5 sentence summary covering the core argument, main findings, and significance. Include specific numbers, names, or outcomes where present.",
+  "key_points": [
+    // 5-12 specific, detailed bullet points. Each should be a COMPLETE FACTUAL CLAIM.
+    // For research papers: include specific findings with numbers (e.g. '25% increase in median survival').
+    // For financial docs: include actual figures, dates, amounts.
+    // For guides/how-tos: include concrete steps or rules.
+    // NEVER write vague points like 'The study found interesting results.'
+  ],
+  "methodology": "(For research/academic docs only) 2-4 sentences on how the study was conducted — models used, sample sizes, techniques. Write null for non-research docs.",
+  "limitations": "(For research/academic docs) Explicit limitations, caveats, or weaknesses mentioned or implied: sample size, model validity, generalisability, ethical concerns, dose constraints. Be specific. Write null for non-research docs.",
+  "key_results": "(For research/academic docs) The most important quantitative or qualitative results in 2-3 sentences. Include numbers. Write null for non-research docs.",
+  "concepts": ["concept1", "concept2", ...], // 3-10 key concepts/entities (short sluggable strings)
+  "related_topics": ["topic1", "topic2", ...] // 2-5 related topic areas
+}
+
+CRITICAL RULES:
+- Be specific and factual. Generic or vague content is useless in a knowledge base.
+- If the document has a limitations section, extract it fully.
+- If asked about a research paper, a user should be able to get precise answers from your output.
+- For financial/personal docs: extract actual figures, account names, dates.
+- Do not invent information not present in the document.`;
 
 async function summarizeWithRetry(
   connectionId: number,
@@ -112,7 +128,7 @@ async function summarizeWithRetry(
     try {
       const result = await callLLM(connectionId, model, [
         { role: "system", content: SUMMARIZE_PROMPT },
-        { role: "user", content: `Document title: ${docTitle}\n\n${docText.slice(0, 20_000)}` },
+        { role: "user", content: `Document title: ${docTitle}\n\n${docText.slice(0, 40_000)}` },
       ], { temperature: 0.2, max_tokens: 2048 });
       return result.content;
     } catch (err: any) {
