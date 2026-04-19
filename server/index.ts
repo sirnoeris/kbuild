@@ -48,8 +48,8 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      // Suppress noisy high-frequency polling routes (status + vault checks every 2s)
-      const isPollingRoute = path === "/api/status" || path === "/api/vault";
+      // Suppress noisy high-frequency polling routes (304s only)
+      const isPollingRoute = path === "/api/status" || path === "/api/vault" || path === "/api/files";
       const isNotModified = res.statusCode === 304;
       if (isPollingRoute && isNotModified) return;
 

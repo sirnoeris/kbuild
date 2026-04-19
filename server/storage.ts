@@ -135,6 +135,7 @@ export interface IStorage {
   getWikiPage(id: number): schema.WikiPage | undefined;
   getWikiPageByPath(path: string): schema.WikiPage | undefined;
   upsertWikiPage(data: schema.InsertWikiPage): schema.WikiPage;
+  deleteWikiPageByPath(path: string): void;
   searchWikiPages(query: string, limit?: number): schema.WikiPage[];
   clearWikiPages(): void;
 }
@@ -309,6 +310,14 @@ export class Storage implements IStorage {
     return db.select().from(schema.wikiPages)
       .orderBy(desc(schema.wikiPages.lastUpdated))
       .limit(limit).all();
+  }
+
+  deleteWikiPageByPath(wikiPath: string) {
+    const page = this.getWikiPageByPath(wikiPath);
+    if (page) {
+      sqlite.prepare("DELETE FROM wiki_fts WHERE rowid = ?").run(page.id);
+      db.delete(schema.wikiPages).where(eq(schema.wikiPages.path, wikiPath)).run();
+    }
   }
 
   clearWikiPages() {

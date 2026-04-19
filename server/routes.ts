@@ -146,16 +146,49 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ ok: true });
   });
 
+  // Reprocess a single file — reset to pending and delete its wiki page from disk + DB
+  // so the next processing run regenerates it cleanly.
+  app.post("/api/files/:id/reprocess", async (req, res) => {
+    const file = storage.getFile(parseInt(req.params.id));
+    if (!file) return res.status(404).json({ error: "Not found" });
+    const settings = storage.getVaultSettings();
+    // Delete the existing wiki page from disk if it exists
+    if (file.wikiPath && settings.vaultPath) {
+      const absWikiPath = path.join(settings.vaultPath, file.wikiPath);
+      try { if (fs.existsSync(absWikiPath)) fs.unlinkSync(absWikiPath); } catch {}
+    }
+    // Remove from DB wiki index
+    if (file.wikiPath) storage.deleteWikiPageByPath(file.wikiPath);
+    // Reset file to pending
+    storage.updateFile(file.id, { status: "pending", errorMessage: null, wikiPath: null, title: null, summary: null, processedAt: null });
+    res.json({ ok: true });
+  });
+
   app.delete("/api/files/:id", (req, res) => {
     storage.deleteFile(parseInt(req.params.id));
     res.json({ ok: true });
   });
 
-  // Reset all files to pending
+  // Reset all files to pending (for retry-all-errors)
   app.post("/api/files/reset-all", (_req, res) => {
     const files = storage.getFiles();
     for (const f of files) storage.updateFile(f.id, { status: "pending", errorMessage: null });
     res.json({ ok: true });
+  });
+
+  // Reprocess all files — reset every file to pending and clear all wiki pages
+  app.post("/api/files/reprocess-all", (req, res) => {
+    const settings = storage.getVaultSettings();
+    const files = storage.getFiles();
+    for (const f of files) {
+      if (f.wikiPath && settings.vaultPath) {
+        const absWikiPath = path.join(settings.vaultPath, f.wikiPath);
+        try { if (fs.existsSync(absWikiPath)) fs.unlinkSync(absWikiPath); } catch {}
+      }
+      storage.updateFile(f.id, { status: "pending", errorMessage: null, wikiPath: null, title: null, summary: null, processedAt: null });
+    }
+    storage.clearWikiPages();
+    res.json({ ok: true, count: files.length });
   });
 
   // ─── SSE Progress stream ──────────────────────────────────────────────────

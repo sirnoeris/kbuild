@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   FolderOpen, Play, RefreshCw, RotateCcw, AlertCircle,
   CheckCircle2, Clock, Loader2, FileText, FileSpreadsheet,
-  FileCode, Globe, Presentation, ChevronDown, X, Database, BookOpen
+  FileCode, Globe, Presentation, X, Database, BookOpen, RefreshCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
@@ -206,6 +206,24 @@ export default function Library() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/files"] }),
   });
 
+  const reprocessMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/files/${id}/reprocess`).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/files"] });
+      toast({ title: "Queued for reprocessing", description: "File reset to pending — click Process raw/ to regenerate its wiki page." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const reprocessAllMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/files/reprocess-all").then(r => r.json()),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/files"] });
+      toast({ title: "All files queued", description: `${data.count} files reset to pending. Click Process raw/ to regenerate all wiki pages.` });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const retryAllMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/files/reset-all").then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/files"] }),
@@ -289,6 +307,17 @@ export default function Library() {
               : <><Play size={13} className="mr-1.5" />Process raw/</>}
           </Button>
           <Button
+            data-testid="button-reprocess-all"
+            variant="outline"
+            size="sm"
+            onClick={() => reprocessAllMutation.mutate()}
+            disabled={reprocessAllMutation.isPending || isProcessing || files.length === 0}
+            title="Reset all files to pending so they are fully reprocessed on the next run"
+          >
+            {reprocessAllMutation.isPending ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <RefreshCcw size={13} className="mr-1.5" />}
+            Reprocess all
+          </Button>
+          <Button
             data-testid="button-sync-wiki"
             variant="outline"
             size="sm"
@@ -366,7 +395,7 @@ export default function Library() {
                     {h}
                   </th>
                 ))}
-                <th className="w-10" />
+                <th className="w-28" />
               </tr>
             </thead>
             <tbody>
@@ -415,16 +444,34 @@ export default function Library() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {file.status === "error" && (
-                        <button
-                          data-testid={`button-retry-${file.id}`}
-                          onClick={(e) => { e.stopPropagation(); retryMutation.mutate(file.id); }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded text-xs"
-                          style={{ background: "var(--color-error-highlight)", color: "var(--color-error)" }}
-                        >
-                          Retry
-                        </button>
-                      )}
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 justify-end">
+                        {file.status === "error" && (
+                          <button
+                            data-testid={`button-retry-${file.id}`}
+                            onClick={(e) => { e.stopPropagation(); retryMutation.mutate(file.id); }}
+                            className="px-2 py-1 rounded text-xs font-medium"
+                            style={{ background: "var(--color-error-highlight)", color: "var(--color-error)" }}
+                          >
+                            Retry
+                          </button>
+                        )}
+                        {file.status !== "processing" && (
+                          <button
+                            data-testid={`button-reprocess-${file.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              reprocessMutation.mutate(file.id);
+                            }}
+                            disabled={reprocessMutation.isPending || isProcessing}
+                            className="px-2 py-1 rounded text-xs font-medium flex items-center gap-1"
+                            style={{ background: "var(--color-surface-offset)", color: "var(--color-text-muted)" }}
+                            title="Discard wiki page and reprocess from scratch"
+                          >
+                            <RefreshCcw size={10} />
+                            Reprocess
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                   {showErrorDetail === file.id && file.errorMessage && (

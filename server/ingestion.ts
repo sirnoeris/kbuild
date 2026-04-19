@@ -129,7 +129,7 @@ async function summarizeWithRetry(
       const result = await callLLM(connectionId, model, [
         { role: "system", content: SUMMARIZE_PROMPT },
         { role: "user", content: `Document title: ${docTitle}\n\n${docText.slice(0, 40_000)}` },
-      ], { temperature: 0.2, max_tokens: 2048 });
+      ], { temperature: 0.2, max_tokens: 4096 });
       return result.content;
     } catch (err: any) {
       lastError = err.message;
@@ -283,7 +283,7 @@ export function syncWikiToDb(vaultRoot: string): number {
 export function getIsProcessing() { return isProcessing; }
 
 // ─── Chat Engine ────────────────────────────────────────────────────────────
-const TOKEN_BUDGET = 12_000; // ~chars per wiki file budget
+const TOKEN_BUDGET = 24_000; // ~chars of wiki content passed to chat LLM
 
 const CHAT_SYSTEM = `You are a helpful research assistant with access to a curated knowledge base (wiki).
 Answer questions ONLY based on the wiki context provided below.
@@ -328,7 +328,7 @@ export async function chatOverWiki(
 
   // 5. Build context
   const contextBlocks = chosen.map(p =>
-    `## ${p.title}\n_Source: ${p.path}_\n\n${p.summary}\n\n${p.body.slice(0, 3000)}`
+    `## ${p.title}\n_Source: ${p.path}_\n\n${p.body.slice(0, 6000)}`
   ).join("\n\n---\n\n");
 
   const contextFiles = chosen.map(p => p.path);
