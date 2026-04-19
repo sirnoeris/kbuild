@@ -11,7 +11,8 @@ Inspired by [Andrej Karpathy's LLM Knowledge Base pattern](https://x.com/karpath
 - **Vault management** — point KBuild at any folder; it creates `raw/`, `wiki/`, and `outputs/` automatically
 - **File ingestion** — processes PDF, DOCX, PPTX, XLSX, HTML, CSV, Markdown, and TXT into full-content wiki pages
 - **Full-text wiki** — every source becomes a complete Markdown wiki page; no summarisation, no data loss
-- **Chat over wiki** — FTS5 full-text search packs the most relevant wiki pages into context; no vector DB needed
+- **KB Mode + Chat Mode** — toggle between knowledge-base-grounded answers (FTS5 full-text search packs the most relevant wiki pages into context; no vector DB needed) and a direct-LLM chat that bypasses the KB, with a visually distinct style so you always know which mode you're in
+- **Custom system prompt** — edit the chat system prompt in **Settings** to tune tone, style, or constraints
 - **Multiple LLM providers** — OpenRouter, xAI Grok, local Ollama, or any OpenAI-compatible endpoint
 - **Separate models** — choose one model for processing/ingestion and another for chat
 - **Per-file and global reprocess** — reprocess any file individually or reset everything and start fresh
@@ -48,7 +49,7 @@ The app runs as a local server (`localhost:3131`) — **your files and API keys 
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Node.js | 18 or 20 LTS | https://nodejs.org |
+| Node.js | 20 LTS or newer | https://nodejs.org |
 | npm | comes with Node | — |
 
 > **Optional:** [Obsidian](https://obsidian.md) — open your vault folder in Obsidian to browse and search the compiled wiki pages with its native graph view and search.
@@ -201,12 +202,44 @@ PORT=3131          # Server port (default: 3131)
 
 ---
 
+## Desktop App (Windows)
+
+KBuild can be installed as a standalone Windows desktop app — no Node, no terminal, no browser required.
+
+### For end users
+
+1. Download the latest `KBuild Setup <version>.exe` from the [GitHub Releases page](https://github.com/sirnoeris/kbuild/releases).
+2. Run the installer — it adds KBuild to the Start Menu and (optionally) the desktop.
+3. Launch KBuild. It starts the local server in the background and opens the UI in its own window. All data (`kb.db`, settings) is stored in `%APPDATA%\KBuild`.
+
+### For developers
+
+Electron scaffolding lives in `electron/`. To build the Windows installer locally:
+
+```powershell
+# On Windows (x64)
+npm install
+npm run electron:build:win
+# → release/KBuild Setup <version>.exe
+```
+
+On macOS/Linux you can smoke-test the Electron shell against your local build:
+
+```bash
+npm run build
+npm run electron:dev
+```
+
+Automated Windows builds are produced by the `.github/workflows/electron-build.yml` workflow on every push to `main` and attached as release artifacts.
+
+---
+
 ## Roadmap
 
 - [ ] File watcher — auto-detect new files dropped into `raw/` without manual scan
 - [ ] Incremental re-processing — only reprocess changed files
 - [ ] Export chat threads to `outputs/`
-- [ ] Electron wrapper — run as a proper desktop app without keeping a terminal open
+- [x] Electron wrapper — run as a proper desktop app without keeping a terminal open
 - [ ] OCR support for scanned PDFs
 - [ ] Streaming chat responses
 

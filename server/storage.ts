@@ -101,18 +101,6 @@ sqlite.exec(`
 // Incremental migrations — add new columns if they don't exist yet
 const existingCols = sqlite.prepare("PRAGMA table_info(vault_settings)").all() as { name: string }[];
 const colNames = new Set(existingCols.map(c => c.name));
-if (!colNames.has("web_search_enabled")) {
-  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 0");
-}
-if (!colNames.has("web_search_provider")) {
-  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_provider TEXT NOT NULL DEFAULT 'brave'");
-}
-if (!colNames.has("web_search_api_key")) {
-  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_api_key TEXT NOT NULL DEFAULT ''");
-}
-if (!colNames.has("web_search_connection_id")) {
-  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_connection_id INTEGER");
-}
 if (!colNames.has("custom_system_prompt")) {
   sqlite.exec("ALTER TABLE vault_settings ADD COLUMN custom_system_prompt TEXT");
 }
