@@ -5,9 +5,11 @@
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
+import { pathToFileURL } from "url";
 
-// Works in both ESM (tsx dev) and CJS (esbuild prod bundle)
-const _require = createRequire(import.meta.url);
+// __filename is available in both CJS (esbuild bundle) and ESM tsx (polyfilled).
+// Using pathToFileURL avoids any import.meta.url reference that triggers esbuild warnings.
+const _require = createRequire(pathToFileURL(__filename).href);
 
 export interface Document {
   path: string;
