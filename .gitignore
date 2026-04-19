@@ -4,6 +4,7 @@ package-lock.json
 
 # Build output
 dist/
+release/
 
 # Database — contains user's API keys and vault paths; never commit
 *.db
