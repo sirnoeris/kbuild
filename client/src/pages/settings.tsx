@@ -33,6 +33,7 @@ interface VaultSettings {
   webSearchEnabled: boolean;
   webSearchProvider: string;
   webSearchApiKey: string;
+  webSearchConnectionId?: number; // used by xAI provider
 }
 
 const FILE_FORMATS = [
@@ -682,6 +683,11 @@ function WebSearchTab() {
     queryFn: () => apiRequest("GET", "/api/vault").then(r => r.json()),
   });
 
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ["/api/connections"],
+    queryFn: () => apiRequest("GET", "/api/connections").then(r => r.json()),
+  });
+
   const updateVault = useMutation({
     mutationFn: (data: Partial<VaultSettings>) => apiRequest("PATCH", "/api/vault", data).then(r => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/vault"] }),
@@ -692,6 +698,10 @@ function WebSearchTab() {
   const isEnabled = vault.webSearchEnabled ?? false;
   const provider = vault.webSearchProvider ?? "brave";
   const apiKey = vault.webSearchApiKey ?? "";
+  const connId = vault.webSearchConnectionId;
+
+  // For the Test button: xAI needs a connection selected; others need an apiKey
+  const canTest = provider === "xai" ? !!connId : !!apiKey;
 
   const handleTest = async () => {
     setTestStatus("testing");
@@ -721,36 +731,28 @@ function WebSearchTab() {
       label: "Brave Search",
       desc: "Free tier: 2,000 queries/month. Real-time results including stock prices and news.",
       signupUrl: "https://api.search.brave.com/register",
-      keyPlaceholder: "BSAxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      keyNote: null,
     },
     {
       value: "serper",
       label: "Serper (Google)",
       desc: "Free tier: 2,500 queries. Google results with rich answer boxes — excellent for financial data.",
       signupUrl: "https://serper.dev",
-      keyPlaceholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      keyNote: null,
     },
     {
       value: "xai",
       label: "xAI Live Search",
-      desc: "Uses Grok's native web_search tool — search + synthesis in a single API call. No separate search key needed. Reuse your xAI API key from Connections.",
+      desc: "Uses Grok’s native web_search tool — search + synthesis in a single call. No separate search API needed.",
       signupUrl: "https://console.x.ai",
-      keyPlaceholder: "xai-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      keyNote: "Use the same xAI API key you added in Settings \u2192 Connections.",
     },
   ];
-
-  const selectedProvider = PROVIDERS.find(p => p.value === provider) ?? PROVIDERS[0];
 
   return (
     <div className="space-y-5">
       <div>
         <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "0.95rem", color: "var(--color-text)" }}>Web Search</h2>
         <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)", marginTop: "2px" }}>
-          When enabled, KBuild can search the web for live data (stock prices, recent news) when your knowledge base doesn't have the answer.
-          You'll be asked to approve each search before it runs.
+          When enabled, KBuild can search the web for live data (stock prices, recent news) when your knowledge base doesn’t have the answer.
+          You’ll be asked to approve each search before it runs.
         </p>
       </div>
 
@@ -765,7 +767,7 @@ function WebSearchTab() {
         />
       </div>
 
-      {/* Provider + key (shown only when enabled) */}
+      {/* Provider + credentials (shown only when enabled) */}
       {isEnabled && (
         <>
           {/* Provider selector */}
@@ -802,7 +804,7 @@ function WebSearchTab() {
                         className="flex items-center gap-1"
                         style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)" }}
                       >
-                        Get free API key <ExternalLink size={10} />
+                        {p.value === "xai" ? "Get API key" : "Get free API key"} <ExternalLink size={10} />
                       </a>
                     </div>
                     <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)", marginTop: "2px" }}>{p.desc}</p>
@@ -812,47 +814,72 @@ function WebSearchTab() {
             </div>
           </div>
 
-          {/* API key */}
+          {/* Credentials section — connection picker for xAI, manual key for others */}
           <div className="rounded-xl overflow-hidden" style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
             <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
-              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.85rem", color: "var(--color-text)" }}>API key</h3>
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "0.85rem", color: "var(--color-text)" }}>
+                {provider === "xai" ? "Connection" : "API key"}
+              </h3>
             </div>
             <div className="p-4 space-y-3">
-              {selectedProvider.keyNote && (
-                <div className="flex items-start gap-2 p-2.5 rounded-lg" style={{ background: "var(--color-primary-highlight)", border: "1px solid var(--color-primary)" }}>
-                  <AlertCircle size={13} style={{ color: "var(--color-primary)", marginTop: "1px", flexShrink: 0 }} />
-                  <p style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)" }}>{selectedProvider.keyNote}</p>
+
+              {provider === "xai" ? (
+                /* ── xAI: pick from saved connections ── */
+                <>
+                  <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-muted)" }}>
+                    Select the xAI connection you added in Settings → Connections. The API key is read from there automatically.
+                  </p>
+                  <select
+                    value={connId ?? ""}
+                    onChange={e => updateVault.mutate({ webSearchConnectionId: e.target.value ? parseInt(e.target.value) : undefined })}
+                    style={inputStyle}
+                  >
+                    <option value="">— Select a connection —</option>
+                    {connections.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {connId && connections.find(c => c.id === connId) && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: "var(--color-primary-highlight)" }}>
+                      <CheckCircle2 size={13} style={{ color: "var(--color-primary)" }} />
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--color-primary)", fontFamily: "var(--font-mono)" }}>
+                        {connections.find(c => c.id === connId)?.name}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* ── Brave / Serper: manual API key ── */
+                <div className="relative">
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={apiKey}
+                    onChange={e => updateVault.mutate({ webSearchApiKey: e.target.value })}
+                    placeholder={provider === "serper" ? "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" : "BSAxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+                    style={{ ...inputStyle, paddingRight: "2.5rem" }}
+                  />
+                  <button
+                    onClick={() => setShowKey(s => !s)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2"
+                    style={{ color: "var(--color-text-faint)" }}
+                    tabIndex={-1}
+                  >
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
               )}
-              <div className="relative">
-                <input
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={e => updateVault.mutate({ webSearchApiKey: e.target.value })}
-                  placeholder={selectedProvider.keyPlaceholder}
-                  style={{ ...inputStyle, paddingRight: "2.5rem" }}
-                />
-                <button
-                  onClick={() => setShowKey(s => !s)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2"
-                  style={{ color: "var(--color-text-faint)" }}
-                  tabIndex={-1}
-                >
-                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
 
-              {/* Test button */}
+              {/* Test button — shared across all providers */}
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleTest}
-                  disabled={!apiKey || testStatus === "testing"}
+                  disabled={!canTest || testStatus === "testing"}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
                   style={{
                     background: "var(--color-surface-offset)",
                     color: "var(--color-text-muted)",
-                    opacity: !apiKey ? 0.5 : 1,
-                    cursor: !apiKey ? "not-allowed" : "pointer",
+                    opacity: !canTest ? 0.5 : 1,
+                    cursor: !canTest ? "not-allowed" : "pointer",
                   }}
                 >
                   {testStatus === "testing" ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
@@ -869,6 +896,7 @@ function WebSearchTab() {
                   </span>
                 )}
               </div>
+
             </div>
           </div>
         </>

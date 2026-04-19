@@ -18,8 +18,9 @@ export const vaultSettings = sqliteTable("vault_settings", {
   lastRunSummary: text("last_run_summary"), // JSON: { processedCount, errorCount, timestamp }
   // Web search
   webSearchEnabled: integer("web_search_enabled", { mode: "boolean" }).notNull().default(false),
-  webSearchProvider: text("web_search_provider").notNull().default("brave"), // brave | serper
-  webSearchApiKey: text("web_search_api_key").notNull().default(""),
+  webSearchProvider: text("web_search_provider").notNull().default("brave"), // brave | serper | xai
+  webSearchApiKey: text("web_search_api_key").notNull().default(""),          // used by brave & serper
+  webSearchConnectionId: integer("web_search_connection_id"),                 // used by xai (points to a Connection row)
 });
 
 export const insertVaultSettingsSchema = createInsertSchema(vaultSettings).omit({ id: true });

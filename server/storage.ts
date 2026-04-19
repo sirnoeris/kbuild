@@ -110,6 +110,9 @@ if (!colNames.has("web_search_provider")) {
 if (!colNames.has("web_search_api_key")) {
   sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_api_key TEXT NOT NULL DEFAULT ''");
 }
+if (!colNames.has("web_search_connection_id")) {
+  sqlite.exec("ALTER TABLE vault_settings ADD COLUMN web_search_connection_id INTEGER");
+}
 
 export interface IStorage {
   // Vault

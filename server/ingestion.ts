@@ -413,20 +413,28 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
   const provider = settings.webSearchProvider ?? "brave";
   const apiKey = settings.webSearchApiKey ?? "";
 
-  if (!apiKey) {
-    const providerName = provider === "brave" ? "Brave Search" : provider === "serper" ? "Serper" : "xAI";
-    throw new Error(`Web search API key not set. Add your ${providerName} API key in Settings → Web Search.`);
-  }
-
   // ─── xAI Live Search ──────────────────────────────────────────────────
   // Uses xAI Responses API — search + synthesis in a single call.
-  // The model performs the web search natively; no separate search engine needed.
+  // Key is resolved from the selected Connection (webSearchConnectionId),
+  // not the generic webSearchApiKey field.
   if (provider === "xai") {
+    const connId = settings.webSearchConnectionId;
+    if (!connId) {
+      throw new Error("xAI web search: no connection selected. Choose an xAI connection in Settings → Web Search.");
+    }
+    const conn = storage.getConnection(connId);
+    if (!conn) {
+      throw new Error(`xAI web search: connection #${connId} not found. Re-select it in Settings → Web Search.`);
+    }
+    const xaiKey = conn.apiKey;
+    if (!xaiKey) {
+      throw new Error("xAI web search: the selected connection has no API key. Edit it in Settings → Connections.");
+    }
     const resp = await fetch("https://api.x.ai/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${xaiKey}`,
       },
       body: JSON.stringify({
         model: "grok-3-fast",     // fast + cheap; supports web_search tool
@@ -461,6 +469,12 @@ export async function performWebSearch(query: string): Promise<{ snippet: string
     }
 
     return { snippet: answer.trim() || "No answer returned.", results };
+  }
+
+  // Brave & Serper require a manual API key stored in webSearchApiKey
+  if (!apiKey) {
+    const providerName = provider === "serper" ? "Serper" : "Brave Search";
+    throw new Error(`Web search API key not set. Add your ${providerName} API key in Settings → Web Search.`);
   }
 
   if (provider === "serper") {
